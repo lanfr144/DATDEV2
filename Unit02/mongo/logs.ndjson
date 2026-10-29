@@ -1,0 +1,10 @@
+{"timestamp":"2025-09-17T08:12:21Z","level":"INFO","service":"auth-api","user_id":"U99999","action":"login_success","ip":"192.168.1.10"}
+{"timestamp":"2025-09-17T09:05:03Z","level":"WARN","service":"orders-api","user_id":"U12345","action":"create_order_retry","order_id":"ORD-1001"}
+{"timestamp":"2025-09-17T10:42:10Z","level":"ERROR","service":"payment-api","user_id":"U12345","action":"transaction_failed","order_id":"ORD-1001","amount":129.99}
+{"timestamp":"2025-09-17T12:01:55Z","level":"INFO","service":"payment-api","user_id":"U12345","action":"transaction_retry","order_id":"ORD-1001"}
+{"timestamp":"2025-09-17T14:30:44Z","level":"WARN","service":"auth-api","user_id":"U88888","action":"login_bruteforce_detected","attempts":7}
+{"timestamp":"2025-09-17T16:00:02Z","level":"INFO","service":"reporting","user_id":"system","action":"daily_summary_generated"}
+{"timestamp":"2025-09-18T06:15:11Z","level":"ERROR","service":"orders-api","user_id":"U22222","action":"create_order_failed","order_id":"ORD-1002"}
+{"timestamp":"2025-09-18T07:02:39Z","level":"INFO","service":"auth-api","user_id":"U12345","action":"logout"}
+{"timestamp":"2025-09-18T07:42:10Z","level":"ERROR","service":"payment-api","user_id":"U77777","action":"transaction_failed","order_id":"ORD-1003","amount":54.50}
+{"timestamp":"2025-09-18T08:05:40Z","level":"WARN","service":"payment-api","user_id":"U12345","action":"transaction_latency_high","p95_ms":910}

@@ -1,0 +1,3 @@
+{ "size": 0,
+  "aggs": { "top_services": { "terms": { "field": "service", "size": 3 },
+            "aggs": { "errors": { "filter": { "term": { "level": "ERROR" } } } } } } }

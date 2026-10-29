@@ -1,0 +1,194 @@
+# =============================================================================
+# Book&Ride - Unit 04 - API gateway + microservices + release strategies
+# =============================================================================
+#   cp .env.example .env                 # secrets + ports (release.env is versioned)
+#   ./scripts/compose.sh up -d --build --wait
+#   ./scripts/smoke_test.sh
+#   ./scripts/release_demo.sh            # semver + blue/green + canary + rollback + rolling
+#
+#   client ──:8401──► gateway (NGINX) ──/books────────────► books ───────► books-db (PostgreSQL)
+#                       │ API key → X-User-Id               │ JSON logs
+#                       │ rate limit, JSON errors           ▼
+#                       └─/rentals──► $rentals_pool ──► rentals-blue  ─┐   logs (MongoDB)
+#                           (bluegreen | canary | rolling) rentals-green ─┴─► rentals-db
+#   prometheus ──scrape /metrics──► rentals-blue, rentals-green  (label version)
+#
+# Values come from TWO files, always passed together by scripts/compose.sh:
+#   .env         secrets and ports (git-ignored)
+#   release.env  versions and traffic split (versioned, GitOps)
+# =============================================================================
+
+x-rentals: &rentals                   # common definition of the two slots (YAML anchor)
+  restart: unless-stopped
+  environment: &rentals-env
+    API_PORT: ${RENTALS_PORT}
+    DATABASE_URL: postgresql+psycopg://${RENTALS_DB_USER}:${RENTALS_DB_PASSWORD}@rentals-db:${RENTALS_DB_PORT}/${RENTALS_DB_NAME}
+    MONGO_HOST: prod-logs
+    MONGO_PORT: ${MONGO_PORT}
+    MONGO_DB: logs_prod
+    MONGO_ROOT_USER: ${MONGO_ROOT_USER}
+    MONGO_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+  # no "ports:": only the gateway can reach the service (it sets X-User-Id)
+  depends_on:
+    rentals-db:
+      condition: service_healthy
+    logs:
+      condition: service_healthy
+  # healthcheck: rentals-service/Dockerfile (GET /rentals/health)
+
+services:
+  gateway:
+    image: nginx:1.27.5-alpine        # >= 1.27.3 for `resolve` in upstream (see template)
+    restart: unless-stopped
+    environment:
+      GATEWAY_LISTEN_PORT: ${GATEWAY_LISTEN_PORT}
+      BOOKS_PORT: ${BOOKS_PORT}
+      RENTALS_PORT: ${RENTALS_PORT}
+      RATE_LIMIT: ${RATE_LIMIT}
+      RATE_BURST: ${RATE_BURST}
+      API_KEY_USER1: ${API_KEY_USER1}
+      API_KEY_USER2: ${API_KEY_USER2}
+      # release state (release.env): changing it + recreating the gateway switches traffic
+      RELEASE_MODE: ${RELEASE_MODE}
+      ACTIVE_COLOR: ${ACTIVE_COLOR}
+      CANARY_COLOR: ${CANARY_COLOR}
+      CANARY_PERCENT: ${CANARY_PERCENT}
+    volumes:
+      - ./gateway/templates:/etc/nginx/templates:ro
+    ports:
+      - "127.0.0.1:${GATEWAY_PORT}:${GATEWAY_LISTEN_PORT}"   # the ONLY entry point
+    depends_on:
+      books:
+        condition: service_healthy
+      rentals-blue:
+        condition: service_healthy
+      rentals-green:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:${GATEWAY_LISTEN_PORT}/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  books:                               # former monolith (Unit 03), config block "prod"
+    build: ./books-service
+    image: datdev2/books:${BOOKS_VERSION}
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV}
+      APP_VERSION: ${BOOKS_VERSION}
+      API_PORT: ${BOOKS_PORT}
+      DB_PASSWORD: ${DB_PASSWORD}
+      MONGO_PORT: ${MONGO_PORT}
+      MONGO_ROOT_USER: ${MONGO_ROOT_USER}
+      MONGO_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    depends_on:
+      books-db:
+        condition: service_healthy
+      logs:
+        condition: service_healthy
+
+  books-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:                       # names of the "prod" block of config.yaml
+      POSTGRES_USER: ${APP_ENV}_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${APP_ENV}_db
+    networks:
+      default:
+        aliases: ["${APP_ENV}-db"]
+    volumes:
+      - booksdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${APP_ENV}_user -d ${APP_ENV}_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  rentals-blue:
+    <<: *rentals
+    build:
+      context: ./rentals-service
+      args: { APP_VERSION: "${BLUE_VERSION}" }       # version baked into the image
+    image: datdev2/rentals:${BLUE_VERSION}           # image tag = semantic version
+    environment:
+      <<: *rentals-env
+      COLOR: blue
+      FAULT_RATE: ${BLUE_FAULT_RATE}
+
+  rentals-green:
+    <<: *rentals
+    build:
+      context: ./rentals-service
+      args: { APP_VERSION: "${GREEN_VERSION}" }
+    image: datdev2/rentals:${GREEN_VERSION}
+    environment:
+      <<: *rentals-env
+      COLOR: green
+      FAULT_RATE: ${GREEN_FAULT_RATE}
+
+  rentals-db:                          # shared by blue and green: compatible schema required
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${RENTALS_DB_USER}
+      POSTGRES_PASSWORD: ${RENTALS_DB_PASSWORD}
+      POSTGRES_DB: ${RENTALS_DB_NAME}
+      PGPORT: ${RENTALS_DB_PORT}
+    volumes:
+      - rentalsdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${RENTALS_DB_USER} -d ${RENTALS_DB_NAME}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  logs:                                # JSON logs of every service (Units 01-03)
+    image: mongo:7
+    restart: unless-stopped
+    command: ["mongod", "--port", "${MONGO_PORT}"]
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    networks:
+      default:
+        aliases: ["${APP_ENV}-logs"]
+    ports:
+      - "127.0.0.1:${MONGO_HOST_PORT}:${MONGO_PORT}"
+    volumes:
+      - logsdata:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --host $$(hostname) --port ${MONGO_PORT} --eval 'db.adminCommand(\"ping\").ok' | grep -q 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    restart: unless-stopped
+    environment:
+      RENTALS_PORT: ${RENTALS_PORT}
+      PROMETHEUS_PORT: ${PROMETHEUS_PORT}
+    volumes:
+      - ./prometheus/prometheus.yml.template:/etc/prometheus/prometheus.yml.template:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - sed "s/RENTALS_PORT/$${RENTALS_PORT}/g" /etc/prometheus/prometheus.yml.template > /tmp/prometheus.yml
+        && exec /bin/prometheus --config.file=/tmp/prometheus.yml --storage.tsdb.path=/prometheus --web.listen-address=:$${PROMETHEUS_PORT}
+    ports:
+      - "127.0.0.1:${PROMETHEUS_HOST_PORT}:${PROMETHEUS_PORT}"
+    depends_on:
+      rentals-blue:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:$${PROMETHEUS_PORT}/-/healthy || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  booksdata:
+  rentalsdata:
+  logsdata:

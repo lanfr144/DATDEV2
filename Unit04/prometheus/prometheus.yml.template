@@ -1,0 +1,15 @@
+# Prometheus scrape configuration (Unit 04).
+# RENTALS_PORT is replaced at start-up by sed (see docker-compose.yml):
+# Prometheus cannot read environment variables in its configuration file.
+# Both slots are scraped: the metrics carry a "version" label, so the canary
+# can be compared with the stable version (error rate, latency).
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: rentals
+    static_configs:
+      - targets: ["rentals-blue:RENTALS_PORT"]
+        labels: { slot: blue }
+      - targets: ["rentals-green:RENTALS_PORT"]
+        labels: { slot: green }

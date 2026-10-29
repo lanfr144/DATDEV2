@@ -1,0 +1,38 @@
+{
+  "took" : 13,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 1,
+    "successful" : 1,
+    "skipped" : 0,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : {
+      "value" : 16,
+      "relation" : "eq"
+    },
+    "max_score" : null,
+    "hits" : [ ]
+  },
+  "aggregations" : {
+    "by_level" : {
+      "doc_count_error_upper_bound" : 0,
+      "sum_other_doc_count" : 0,
+      "buckets" : [
+        {
+          "key" : "INFO",
+          "doc_count" : 7
+        },
+        {
+          "key" : "WARN",
+          "doc_count" : 5
+        },
+        {
+          "key" : "ERROR",
+          "doc_count" : 4
+        }
+      ]
+    }
+  }
+}

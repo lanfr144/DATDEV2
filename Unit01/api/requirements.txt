@@ -1,0 +1,7 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pymongo==4.10.1
+# tests only
+pytest==8.3.4
+httpx==0.28.1
+mongomock==4.3.0

@@ -1,0 +1,14 @@
+{
+  "settings": { "number_of_shards": 1, "number_of_replicas": 0 },
+  "mappings": {
+    "properties": {
+      "title":     { "type": "text", "fields": { "raw": { "type": "keyword" } } },
+      "author":    { "type": "text", "fields": { "raw": { "type": "keyword" } } },
+      "tags":      { "type": "keyword" },
+      "year":      { "type": "integer" },
+      "isbn":      { "type": "keyword" },
+      "price":     { "type": "float" },
+      "available": { "type": "boolean" }
+    }
+  }
+}

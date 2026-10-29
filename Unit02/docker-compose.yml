@@ -1,0 +1,248 @@
+# =============================================================================
+# Book&Ride - Unit 02 - FastAPI + Django + MongoDB + Elasticsearch + Kibana
+# =============================================================================
+#   cp .env.example .env                    # then replace the PASSWORD_* values
+#   docker compose up -d --build --wait     # ~2 min the first time (certificates, ES)
+#   ./scripts/smoke_test.sh                 # end-to-end checks
+#   docker compose down                     # stop (-v also deletes the volumes)
+#
+# Data flow (DEVOP2 Unit 02 "ingest -> store & index -> explore & visualise"):
+#
+#   api (FastAPI) ─┐  books + JSON logs   ┌─> mongo ──shipper (_bulk)──┐
+#   django (DRF)  ─┘─────────────────────>┘                            v
+#   api ──BackgroundTask (PUT /books/_doc)──────────────────────> elasticsearch <── kibana
+#
+# Start order, guaranteed by depends_on + healthchecks:
+#   setup (certificates, one-shot) -> elasticsearch (healthy) -> es-init (one-shot)
+#   -> kibana (healthy) -> kibana-init (one-shot) ; mongo (healthy) -> api, django, shipper
+# Needs ~3 GB of free RAM (ES heap capped at 1 GB by ES_JAVA_OPTS).
+# =============================================================================
+
+x-es-env: &es-client-env      # shared by api and shipper (YAML anchor)
+  ES_URL: https://elasticsearch:${ES_PORT}
+  ES_USER: ${ES_APP_USER}
+  ES_PASSWORD: ${ES_APP_PASSWORD}
+  ES_CA_CERT: /certs/ca/ca.crt
+
+services:
+  # ======================= MongoDB = system of record =========================
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    command: ["mongod", "--port", "${MONGO_PORT}"]
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_DB: ${MONGO_DB}
+    ports:
+      - "127.0.0.1:${MONGO_HOST_PORT}:${MONGO_PORT}"
+    volumes:
+      - mongo_data:/data/db
+      - ./mongo/init:/docker-entrypoint-initdb.d:ro
+      - ./mongo/logs.ndjson:/seed/logs.ndjson:ro
+      - ./mongo/queries.js:/scripts/queries.js:ro
+    healthcheck:
+      # network address of the container, not 127.0.0.1 (see Unit 01 README)
+      test: ["CMD-SHELL", "mongosh --quiet --host $$(hostname) --port ${MONGO_PORT} --eval 'db.adminCommand(\"ping\").ok' | grep -q 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  mongo-express:
+    image: mongo-express:1
+    restart: unless-stopped
+    environment:
+      ME_CONFIG_MONGODB_URL: mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASSWORD}@mongo:${MONGO_PORT}/?authSource=admin
+      ME_CONFIG_BASICAUTH_USERNAME: ${EXPRESS_USER}
+      ME_CONFIG_BASICAUTH_PASSWORD: ${EXPRESS_PASSWORD}
+      PORT: ${EXPRESS_PORT}
+    ports:
+      - "127.0.0.1:${EXPRESS_HOST_PORT}:${EXPRESS_PORT}"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:${EXPRESS_PORT}/status || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ======================= Elastic stack (TLS + authentication) ===============
+  setup:                         # one-shot: CA + certificate of the node
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    user: "0"
+    command: ["bash", "/init/setup-certs.sh"]
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs
+      - ./elk/init:/init:ro
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    restart: unless-stopped
+    environment:
+      - node.name=es01
+      - cluster.name=bookandride
+      - discovery.type=single-node
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - ES_JAVA_OPTS=${ES_JAVA_OPTS}
+      - http.port=${ES_PORT}
+      - xpack.security.enabled=true
+      - xpack.security.http.ssl.enabled=true
+      - xpack.security.http.ssl.key=certs/elasticsearch/elasticsearch.key
+      - xpack.security.http.ssl.certificate=certs/elasticsearch/elasticsearch.crt
+      - xpack.security.http.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.transport.ssl.enabled=true
+      - xpack.security.transport.ssl.key=certs/elasticsearch/elasticsearch.key
+      - xpack.security.transport.ssl.certificate=certs/elasticsearch/elasticsearch.crt
+      - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.transport.ssl.verification_mode=certificate
+      - xpack.license.self_generated.type=basic
+    ports:
+      - "127.0.0.1:${ES_HOST_PORT}:${ES_PORT}"      # https://localhost:9221 (local only)
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs
+      - es_data:/usr/share/elasticsearch/data
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    healthcheck:
+      # "missing authentication credentials" = HTTPS answers AND security is on
+      test: ["CMD-SHELL", "curl -s --cacert config/certs/ca/ca.crt https://localhost:${ES_PORT} | grep -q 'missing authentication credentials'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  es-init:                       # one-shot: users, roles, mappings, logs-demo
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    command: ["bash", "/init/es-init.sh"]
+    environment:
+      ES_PORT: ${ES_PORT}
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD}
+      KIBANA_PASSWORD: ${KIBANA_PASSWORD}
+      ES_APP_USER: ${ES_APP_USER}
+      ES_APP_PASSWORD: ${ES_APP_PASSWORD}
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs:ro
+      - ./elk/init:/init:ro
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:${STACK_VERSION}
+    restart: unless-stopped
+    environment:
+      - SERVER_NAME=kibana
+      - SERVER_PORT=${KIBANA_PORT}
+      - ELASTICSEARCH_HOSTS=https://elasticsearch:${ES_PORT}
+      - ELASTICSEARCH_USERNAME=kibana_system           # never the elastic superuser
+      - ELASTICSEARCH_PASSWORD=${KIBANA_PASSWORD}
+      - ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES=config/certs/ca/ca.crt
+      - ELASTICSEARCH_SSL_VERIFICATIONMODE=certificate # real check, not "none"
+      - XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY=${KIBANA_ENCRYPTION_KEY}
+    ports:
+      - "127.0.0.1:${KIBANA_HOST_PORT}:${KIBANA_PORT}"
+    volumes:
+      - certs:/usr/share/kibana/config/certs:ro
+      - kibana_data:/usr/share/kibana/data
+    depends_on:
+      es-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:${KIBANA_PORT}/api/status | grep -q '\"level\":\"available\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  kibana-init:                   # one-shot: data view + Lens + dashboard
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}   # only for bash + curl
+    command: ["bash", "/init/kibana-init.sh"]
+    environment:
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD}
+      KIBANA_PORT: ${KIBANA_PORT}
+      KIBANA_HOST_PORT: ${KIBANA_HOST_PORT}
+    volumes:
+      - ./elk/init:/init:ro
+    depends_on:
+      kibana:
+        condition: service_healthy
+
+  # ======================= applications =======================================
+  api:                           # FastAPI - healthcheck in api/Dockerfile
+    build: ./api
+    image: datdev2/books-api:${APP_VERSION}
+    restart: unless-stopped
+    environment:
+      <<: *es-client-env
+      SERVICE_NAME: ${SERVICE_NAME}
+      APP_VERSION: ${APP_VERSION}
+      API_PORT: ${API_PORT}
+      MONGO_DB: ${MONGO_DB}
+      MONGO_ROOT_USER: ${MONGO_ROOT_USER}
+      MONGO_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_HOST: mongo
+      MONGO_HOST_PORT: ${MONGO_PORT}
+    ports:
+      - "127.0.0.1:${API_HOST_PORT}:${API_PORT}"
+    volumes:
+      - certs:/certs:ro                      # CA to verify the TLS of Elasticsearch
+    depends_on:
+      mongo:
+        condition: service_healthy
+      es-init:
+        condition: service_completed_successfully
+
+  django:                        # Django REST Framework - healthcheck in its Dockerfile
+    build: ./django-books
+    image: datdev2/books-django:${APP_VERSION}
+    restart: unless-stopped
+    environment:
+      DJANGO_PORT: ${DJANGO_PORT}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      DJANGO_DEBUG: ${DJANGO_DEBUG}
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,django
+      DJANGO_DB_PATH: /data/db.sqlite3
+      MONGO_DB: ${MONGO_DB}
+      MONGO_ROOT_USER: ${MONGO_ROOT_USER}
+      MONGO_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_HOST: mongo
+      MONGO_PORT: ${MONGO_PORT}
+    ports:
+      - "127.0.0.1:${DJANGO_HOST_PORT}:${DJANGO_PORT}"
+    volumes:
+      - django_data:/data
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  shipper:                       # MongoDB logs -> Elasticsearch (_bulk), healthcheck in its Dockerfile
+    build: ./shipper
+    image: datdev2/log-shipper:${APP_VERSION}
+    restart: unless-stopped
+    environment:
+      <<: *es-client-env
+      MONGO_DB: ${MONGO_DB}
+      MONGO_ROOT_USER: ${MONGO_ROOT_USER}
+      MONGO_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_HOST: mongo
+      MONGO_PORT: ${MONGO_PORT}
+      LOGS_INDEX: ${LOGS_INDEX}
+      SHIP_INTERVAL: ${SHIP_INTERVAL}
+    volumes:
+      - certs:/certs:ro
+    depends_on:
+      mongo:
+        condition: service_healthy
+      es-init:
+        condition: service_completed_successfully
+
+volumes:
+  mongo_data:
+  certs:
+  es_data:
+  kibana_data:
+  django_data:

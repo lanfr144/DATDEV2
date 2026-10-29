@@ -1,0 +1,46 @@
+# =============================================================================
+# Book&Ride - Unit 04 - books service - configuration of the 3 environments
+# =============================================================================
+# ONE codebase, THREE configurations: APP_ENV=dev | staging | prod selects a block.
+# This file is versioned: it holds NO secret. The secrets (DB_PASSWORD,
+# MONGO_ROOT_PASSWORD) come from the environment (.env.<env> files,
+# git-ignored; a vault or the CI in real production).
+#
+# Precedence (strongest first), applied by app/settings.py:
+#   1. environment variables          (docker compose, export, CI)
+#   2. config.local.yaml              (personal overrides, git-ignored)
+#   3. this file, block of APP_ENV
+#
+# YAML rules (course troubleshooting): 2 spaces, never tabs; lower-case
+# true/false; quote strings that contain ':' or special characters.
+# =============================================================================
+environments:
+  dev:
+    DEBUG: true                 # verbose logs, /docs and /config visible
+    LOG_LEVEL: "DEBUG"
+    DB_HOST: "dev-db"
+    DB_PORT: 5432
+    DB_NAME: "dev_db"
+    DB_USER: "dev_user"
+    MONGO_HOST: "dev-logs"
+    MONGO_DB: "logs_dev"
+
+  staging:                      # copy of prod, with debug ON to investigate
+    DEBUG: true
+    LOG_LEVEL: "INFO"
+    DB_HOST: "staging-db"
+    DB_PORT: 5432
+    DB_NAME: "staging_db"
+    DB_USER: "staging_user"
+    MONGO_HOST: "staging-logs"
+    MONGO_DB: "logs_staging"
+
+  prod:
+    DEBUG: false                # never true in prod: checked by settings.py
+    LOG_LEVEL: "WARNING"        # minimal logging: warnings and errors only
+    DB_HOST: "prod-db"
+    DB_PORT: 5432
+    DB_NAME: "prod_db"
+    DB_USER: "prod_user"
+    MONGO_HOST: "prod-logs"
+    MONGO_DB: "logs_prod"

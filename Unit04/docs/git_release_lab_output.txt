@@ -1,0 +1,118 @@
+
+### Part 1 - semantic versioning (repository: <temporary directory>)
+$ git tag -a v1.0.0 -m First release of the rentals service
+$ git tag -a v1.1.0 -m MINOR: new optional field
+$ git tag -a v2.0.0 -m MAJOR: breaking API change
+Q: bug fix after v2.0.0 -> v2.0.1 (PATCH). New endpoint that changes nothing existing -> v2.1.0 (MINOR).
+
+### Part 2 - tags and release notes
+$ git tag -n1
+v1.0.0          First release of the rentals service
+v1.1.0          MINOR: new optional field
+v2.0.0          MAJOR: breaking API change
+# Release Notes – Book&Ride rentals service
+
+Les versions les plus récentes sont en haut.
+
+Format : [Keep a Changelog](https://keepachangelog.com/) + [Semantic Versioning](https://semver.org/) :
+
+| Partie | Quand elle augmente |
+|---|---|
+| MAJOR | changement incompatible |
+| MINOR | ajout compatible |
+| PATCH | correctif |
+
+
+### Part 3.1 - blue/green (branches)
+$ git merge -q --no-edit green
+$ cat deployment.txt
+Green version running (v2.0.0)
+
+### Part 3.2 - rolling (3 servers, one batch at a time)
+$ grep -H . server1/version.txt server2/version.txt server3/version.txt
+server1/version.txt:v2.0.1
+server2/version.txt:v2.0.1
+server3/version.txt:v2.0.1
+$ git tag -a v2.0.1 -m PATCH: fix of v2.0.0 (v2.0.0 is never moved)
+
+### Part 3.3 - canary
+$ git log --oneline --graph --all -n 12
+* f146b5e Canary: server1 runs v2.1.0 for 10% of traffic
+* 575760d Rolling update: server3 to v2.0.1
+* 97b24ec Rolling update: server2 to v2.0.1
+* ad0880e Rolling update: server1 to v2.0.1
+* d0554fb Initial state: 3 servers on v1.1.0
+* b5cf327 Green: new version deployed and validated
+* 98ca15d Blue: current production version
+* 4571511 docs: release notes v1.0.0 to v2.0.2
+* 3592e3b feat!: price_cents replaces price_eur (BREAKING CHANGE)
+* 1eabef2 feat: add price_detail to POST /rentals/stop
+* 4f62b77 feat: rentals service extracted from the monolith
+* 8eee387 Initial commit
+
+### Part 4 - rollback with revert (history kept)
+$ git revert --no-edit HEAD
+[main 501e35f] Revert "Canary: server1 runs v2.1.0 for 10% of traffic"
+ Date: Wed Oct 28 19:16:05 2026 +0100
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+$ cat server1/version.txt
+v2.0.1
+$ git log --oneline -n 3
+501e35f Revert "Canary: server1 runs v2.1.0 for 10% of traffic"
+f146b5e Canary: server1 runs v2.1.0 for 10% of traffic
+575760d Rolling update: server3 to v2.0.1
+
+### Unit 05 - undo in the working directory / staging area
+$ git status --short
+ M app.py
+$ git restore app.py
+$ git status --short
+$ git reset -q app.py
+$ git status --short
+ M app.py
+
+### Unit 05 - reset --soft / --mixed / --hard, then recover with reflog
+$ git reset --soft HEAD~1
+$ git status --short
+M  app.py
+$ git reset HEAD~1
+Unstaged changes after reset:
+M	app.py
+$ git status --short
+ M app.py
+$ git reset --hard HEAD~1
+HEAD is now at 501e35f Revert "Canary: server1 runs v2.1.0 for 10% of traffic"
+$ git status --short
+$ git reflog -n 4
+501e35f HEAD@{0}: reset: moving to HEAD~1
+a9c5d17 HEAD@{1}: commit: Add secret data (mistake)
+501e35f HEAD@{2}: reset: moving to HEAD~1
+a9c5d17 HEAD@{3}: commit: Add secret data (mistake)
+commit a9c5d17 is still in the reflog: git reset --hard a9c5d17 would bring it back
+(here we leave it out: a secret must never be pushed)
+
+### Unit 05 - restore a deleted tracked file
+$ git status --short
+ D app.py
+$ git restore app.py
+$ ls app.py
+app.py
+
+### Unit 05 - hotfix branch instead of resetting production
+$ git merge -q --no-edit hotfix/2.0.2
+$ git tag -a v2.0.2 -m PATCH: hotfix
+$ git tag
+v1.0.0
+v1.1.0
+v2.0.0
+v2.0.1
+v2.0.2
+$ git log --oneline --graph --all -n 8
+* a708bdc fix: rounding of price_cents
+* 501e35f Revert "Canary: server1 runs v2.1.0 for 10% of traffic"
+* f146b5e Canary: server1 runs v2.1.0 for 10% of traffic
+* 575760d Rolling update: server3 to v2.0.1
+* 97b24ec Rolling update: server2 to v2.0.1
+* ad0880e Rolling update: server1 to v2.0.1
+* d0554fb Initial state: 3 servers on v1.1.0
+* b5cf327 Green: new version deployed and validated

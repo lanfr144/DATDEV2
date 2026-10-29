@@ -1,0 +1,22 @@
+{
+  "index_patterns": ["logs-demo", "logs-bookandride*"],
+  "priority": 200,
+  "template": {
+    "settings": { "number_of_shards": 1, "number_of_replicas": 0 },
+    "mappings": {
+      "dynamic": true,
+      "properties": {
+        "@timestamp":  { "type": "date" },
+        "level":       { "type": "keyword" },
+        "service":     { "type": "keyword" },
+        "user_id":     { "type": "keyword" },
+        "action":      { "type": "keyword" },
+        "method":      { "type": "keyword" },
+        "path":        { "type": "keyword" },
+        "status":      { "type": "integer" },
+        "duration_ms": { "type": "float" },
+        "message":     { "type": "text" }
+      }
+    }
+  }
+}

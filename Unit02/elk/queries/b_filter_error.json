@@ -1,0 +1,2 @@
+{ "query": { "bool": { "filter": [ { "term": { "level": "ERROR" } } ] } },
+  "sort": [ { "@timestamp": "asc" } ] }

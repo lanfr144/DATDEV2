@@ -1,0 +1,93 @@
+# =============================================================================
+# Book&Ride - Unit 01 - books API + MongoDB + mongo-express
+# =============================================================================
+#   cp .env.example .env          # then replace the PASSWORD_* values
+#   docker compose up -d --build --wait   # returns when the 3 services are healthy
+#   docker compose ps             # (healthy) everywhere
+#   docker compose logs api       # JSON logs, one per line
+#   docker compose down           # stop (add -v to delete the data volume)
+#
+# Every port and password comes from .env (${...}): nothing is hard-coded.
+# Ports are published on 127.0.0.1 only (local lab, not the whole network).
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # MongoDB 7: stores the books AND the JSON logs (DEVOP2 Unit 01)
+  # ---------------------------------------------------------------------------
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    command: ["mongod", "--port", "${MONGO_PORT}"]
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_DB: ${MONGO_DB}                 # read by the seed script
+    ports:
+      - "127.0.0.1:${MONGO_HOST_PORT}:${MONGO_PORT}"   # for Compass / mongosh on the host
+    volumes:
+      - mongo_data:/data/db                 # persistent volume (survives `down`)
+      # first start of an empty volume: load the course dataset (real Dates)
+      - ./mongo/init:/docker-entrypoint-initdb.d:ro
+      - ./mongo/logs.ndjson:/seed/logs.ndjson:ro
+      - ./mongo/queries.js:/scripts/queries.js:ro
+    healthcheck:
+      # --host $$(hostname) = the container's network address, NOT 127.0.0.1:
+      # on the first start the image runs a temporary mongod (localhost only)
+      # for the init scripts; testing via the network avoids a false "healthy".
+      test: ["CMD-SHELL", "mongosh --quiet --host $$(hostname) --port ${MONGO_PORT} --eval 'db.adminCommand(\"ping\").ok' | grep -q 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # Web UI of MongoDB (course: "compose setup, cleaner, adds a web UI")
+  # ---------------------------------------------------------------------------
+  mongo-express:
+    image: mongo-express:1
+    restart: unless-stopped
+    environment:
+      # service name "mongo", NOT localhost: inside a container localhost = itself
+      ME_CONFIG_MONGODB_URL: mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASSWORD}@mongo:${MONGO_PORT}/?authSource=admin
+      ME_CONFIG_BASICAUTH_USERNAME: ${EXPRESS_USER}
+      ME_CONFIG_BASICAUTH_PASSWORD: ${EXPRESS_PASSWORD}
+      PORT: ${EXPRESS_PORT}
+    ports:
+      - "127.0.0.1:${EXPRESS_HOST_PORT}:${EXPRESS_PORT}"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      # 127.0.0.1 and not localhost: BusyBox wget would try IPv6 ::1 first
+      # /status is the only page that answers without Basic Auth
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:${EXPRESS_PORT}/status || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # books API (FastAPI) - healthcheck defined in api/Dockerfile (GET /health)
+  # ---------------------------------------------------------------------------
+  api:
+    build: ./api
+    image: datdev2/books-api:${APP_VERSION}
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: ${SERVICE_NAME}
+      APP_VERSION: ${APP_VERSION}
+      API_PORT: ${API_PORT}
+      MONGO_DB: ${MONGO_DB}
+      MONGO_ROOT_USER: ${MONGO_ROOT_USER}
+      MONGO_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_HOST: mongo                     # Docker DNS: the service name
+      MONGO_HOST_PORT: ${MONGO_PORT}        # internal port, not the published one
+    ports:
+      - "127.0.0.1:${API_HOST_PORT}:${API_PORT}"
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+volumes:
+  mongo_data:

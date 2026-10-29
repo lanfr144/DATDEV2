@@ -1,0 +1,5 @@
+{ "size": 0,
+  "query": { "bool": { "filter": [
+    { "term": { "level": "ERROR" } },
+    { "range": { "@timestamp": { "gte": "2025-09-17T10:00:00Z", "lt": "2025-09-18T10:00:00Z" } } } ] } },
+  "aggs": { "per_service": { "terms": { "field": "service" } } } }

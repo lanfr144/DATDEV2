@@ -1,0 +1,84 @@
+# =============================================================================
+# Book&Ride - Unit 03 - modular monolith (1 app + 1 PostgreSQL) + MongoDB for logs
+# ONE file for the THREE environments: the variables decide which one runs.
+# =============================================================================
+#   ./scripts/up.sh dev          # = docker compose --env-file .env --env-file .env.dev up -d --build --wait
+#   ./scripts/up.sh staging      #   (the 3 environments can run at the same time:
+#   ./scripts/up.sh prod         #    different project names, ports and volumes)
+#   ./scripts/down.sh <env>
+#
+# Naming convention shared with api/config/config.yaml (block of APP_ENV):
+#   database host  ${APP_ENV}-db     user ${APP_ENV}_user    database ${APP_ENV}_db
+#   logs host      ${APP_ENV}-logs   (MongoDB)
+# The network aliases below give the containers these names, so the values of
+# config.yaml work unchanged in Docker: only the SECRETS come from .env.<env>.
+# =============================================================================
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${APP_ENV}_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${APP_ENV}_db
+      PGPORT: ${DB_PORT}
+    networks:
+      default:
+        aliases: ["${APP_ENV}-db"]          # = DB_HOST of config.yaml
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${APP_ENV}_user -d ${APP_ENV}_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # no "ports:": the database is NOT reachable from outside Docker
+
+  logs:
+    image: mongo:7
+    restart: unless-stopped
+    command: ["mongod", "--port", "${MONGO_PORT}"]
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    networks:
+      default:
+        aliases: ["${APP_ENV}-logs"]        # = MONGO_HOST of config.yaml
+    ports:
+      - "127.0.0.1:${MONGO_HOST_PORT}:${MONGO_PORT}"
+    volumes:
+      - logsdata:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --host $$(hostname) --port ${MONGO_PORT} --eval 'db.adminCommand(\"ping\").ok' | grep -q 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  api:
+    build: ./api
+    image: datdev2/bookandride:${APP_VERSION}     # same image in the 3 environments
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV}                   # selects the block of config.yaml
+      APP_VERSION: ${APP_VERSION}
+      API_PORT: ${API_PORT}
+      MONGO_PORT: ${MONGO_PORT}
+      MONGO_ROOT_USER: ${MONGO_ROOT_USER}
+      # secrets: NOT in config.yaml, NOT in the image
+      DB_PASSWORD: ${DB_PASSWORD}
+      API_KEY: ${API_KEY}
+      MONGO_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    ports:
+      - "127.0.0.1:${API_HOST_PORT}:${API_PORT}"
+    depends_on:
+      db:
+        condition: service_healthy
+      logs:
+        condition: service_healthy
+    # healthcheck: api/Dockerfile (GET /health, which also tests PostgreSQL)
+
+volumes:
+  dbdata:
+  logsdata:

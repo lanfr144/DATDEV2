@@ -1,0 +1,7 @@
+# Personal overrides (course extension "Local Overrides").
+#   cp config.local.yaml.example config.local.yaml     (config.local.yaml is git-ignored)
+# Only the keys written here replace those of config.yaml, for the given env.
+# Example: run the API on your laptop without Docker, with a SQLite file.
+dev:
+  DB_URL: "sqlite:///./dev.db"
+  MONGO_HOST: "localhost"

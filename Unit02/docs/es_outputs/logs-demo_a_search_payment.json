@@ -1,0 +1,103 @@
+{
+  "took" : 4,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 1,
+    "successful" : 1,
+    "skipped" : 0,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : {
+      "value" : 6,
+      "relation" : "eq"
+    },
+    "max_score" : 0.94632804,
+    "hits" : [
+      {
+        "_index" : "logs-demo",
+        "_id" : "demo-03",
+        "_score" : 0.94632804,
+        "_source" : {
+          "level" : "ERROR",
+          "service" : "payment-api",
+          "user_id" : "U12345",
+          "action" : "transaction_failed",
+          "order_id" : "ORD-1001",
+          "amount" : 129.99,
+          "@timestamp" : "2025-09-17T10:42:10Z",
+          "message" : "payment-api transaction_failed user=U12345"
+        }
+      },
+      {
+        "_index" : "logs-demo",
+        "_id" : "demo-04",
+        "_score" : 0.94632804,
+        "_source" : {
+          "level" : "INFO",
+          "service" : "payment-api",
+          "user_id" : "U12345",
+          "action" : "transaction_retry",
+          "order_id" : "ORD-1001",
+          "@timestamp" : "2025-09-17T12:01:55Z",
+          "message" : "payment-api transaction_retry user=U12345"
+        }
+      },
+      {
+        "_index" : "logs-demo",
+        "_id" : "demo-09",
+        "_score" : 0.94632804,
+        "_source" : {
+          "level" : "ERROR",
+          "service" : "payment-api",
+          "user_id" : "U77777",
+          "action" : "transaction_failed",
+          "order_id" : "ORD-1003",
+          "amount" : 54.5,
+          "@timestamp" : "2025-09-18T07:42:10Z",
+          "message" : "payment-api transaction_failed user=U77777"
+        }
+      },
+      {
+        "_index" : "logs-demo",
+        "_id" : "demo-10",
+        "_score" : 0.94632804,
+        "_source" : {
+          "level" : "WARN",
+          "service" : "payment-api",
+          "user_id" : "U12345",
+          "action" : "transaction_latency_high",
+          "p95_ms" : 910,
+          "@timestamp" : "2025-09-18T08:05:40Z",
+          "message" : "payment-api transaction_latency_high user=U12345"
+        }
+      },
+      {
+        "_index" : "logs-demo",
+        "_id" : "demo-12",
+        "_score" : 0.94632804,
+        "_source" : {
+          "level" : "ERROR",
+          "service" : "payment-api",
+          "user_id" : "U12345",
+          "action" : "transaction_failed",
+          "@timestamp" : "2025-09-24T21:00:00Z",
+          "message" : "payment-api transaction_failed user=U12345"
+        }
+      },
+      {
+        "_index" : "logs-demo",
+        "_id" : "demo-15",
+        "_score" : 0.94632804,
+        "_source" : {
+          "level" : "INFO",
+          "service" : "payment-api",
+          "user_id" : "U22222",
+          "action" : "transaction_success",
+          "@timestamp" : "2025-09-24T21:15:00Z",
+          "message" : "payment-api transaction_success user=U22222"
+        }
+      }
+    ]
+  }
+}

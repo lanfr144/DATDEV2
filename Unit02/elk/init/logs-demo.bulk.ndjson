@@ -1,0 +1,32 @@
+{"index": {"_id": "demo-01"}}
+{"level": "INFO", "service": "auth-api", "user_id": "U99999", "action": "login_success", "ip": "192.168.1.10", "@timestamp": "2025-09-17T08:12:21Z", "message": "auth-api login_success user=U99999"}
+{"index": {"_id": "demo-02"}}
+{"level": "WARN", "service": "orders-api", "user_id": "U12345", "action": "create_order_retry", "order_id": "ORD-1001", "@timestamp": "2025-09-17T09:05:03Z", "message": "orders-api create_order_retry user=U12345"}
+{"index": {"_id": "demo-03"}}
+{"level": "ERROR", "service": "payment-api", "user_id": "U12345", "action": "transaction_failed", "order_id": "ORD-1001", "amount": 129.99, "@timestamp": "2025-09-17T10:42:10Z", "message": "payment-api transaction_failed user=U12345"}
+{"index": {"_id": "demo-04"}}
+{"level": "INFO", "service": "payment-api", "user_id": "U12345", "action": "transaction_retry", "order_id": "ORD-1001", "@timestamp": "2025-09-17T12:01:55Z", "message": "payment-api transaction_retry user=U12345"}
+{"index": {"_id": "demo-05"}}
+{"level": "WARN", "service": "auth-api", "user_id": "U88888", "action": "login_bruteforce_detected", "attempts": 7, "@timestamp": "2025-09-17T14:30:44Z", "message": "auth-api login_bruteforce_detected user=U88888"}
+{"index": {"_id": "demo-06"}}
+{"level": "INFO", "service": "reporting", "user_id": "system", "action": "daily_summary_generated", "@timestamp": "2025-09-17T16:00:02Z", "message": "reporting daily_summary_generated user=system"}
+{"index": {"_id": "demo-07"}}
+{"level": "ERROR", "service": "orders-api", "user_id": "U22222", "action": "create_order_failed", "order_id": "ORD-1002", "@timestamp": "2025-09-18T06:15:11Z", "message": "orders-api create_order_failed user=U22222"}
+{"index": {"_id": "demo-08"}}
+{"level": "INFO", "service": "auth-api", "user_id": "U12345", "action": "logout", "@timestamp": "2025-09-18T07:02:39Z", "message": "auth-api logout user=U12345"}
+{"index": {"_id": "demo-09"}}
+{"level": "ERROR", "service": "payment-api", "user_id": "U77777", "action": "transaction_failed", "order_id": "ORD-1003", "amount": 54.5, "@timestamp": "2025-09-18T07:42:10Z", "message": "payment-api transaction_failed user=U77777"}
+{"index": {"_id": "demo-10"}}
+{"level": "WARN", "service": "payment-api", "user_id": "U12345", "action": "transaction_latency_high", "p95_ms": 910, "@timestamp": "2025-09-18T08:05:40Z", "message": "payment-api transaction_latency_high user=U12345"}
+{"index": {"_id": "demo-11"}}
+{"level": "INFO", "service": "web", "user_id": "system", "action": "server_started", "@timestamp": "2025-09-24T20:30:00Z", "message": "web server_started user=system"}
+{"index": {"_id": "demo-12"}}
+{"level": "ERROR", "service": "payment-api", "user_id": "U12345", "action": "transaction_failed", "@timestamp": "2025-09-24T21:00:00Z", "message": "payment-api transaction_failed user=U12345"}
+{"index": {"_id": "demo-13"}}
+{"level": "WARN", "service": "auth-api", "user_id": "U88888", "action": "login_bruteforce_detected", "@timestamp": "2025-09-24T21:05:00Z", "message": "auth-api login_bruteforce_detected user=U88888"}
+{"index": {"_id": "demo-14"}}
+{"level": "INFO", "service": "orders-api", "user_id": "U22222", "action": "order_created", "@timestamp": "2025-09-24T21:10:00Z", "message": "orders-api order_created user=U22222"}
+{"index": {"_id": "demo-15"}}
+{"level": "INFO", "service": "payment-api", "user_id": "U22222", "action": "transaction_success", "@timestamp": "2025-09-24T21:15:00Z", "message": "payment-api transaction_success user=U22222"}
+{"index": {"_id": "demo-16"}}
+{"level": "WARN", "service": "web", "user_id": "U99999", "action": "slow_page_load", "@timestamp": "2025-09-24T21:20:00Z", "message": "web slow_page_load user=U99999"}

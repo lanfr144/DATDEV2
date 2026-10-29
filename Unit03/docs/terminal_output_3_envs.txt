@@ -1,0 +1,29 @@
+$ APP_ENV=dev python -m app.settings
+INFO configuration loaded: environment=dev source=config.yaml
+=== APP_ENV=dev ===
+[DEBUG MODE] Verbose logs enabled
+Connecting to DB: postgresql+psycopg://dev_user:****@dev-db:5432/dev_db
+Using API key: dev-... (masked)
+Logs -> MongoDB dev-logs/logs_dev, level DEBUG; price 0.25 EUR/min, cap 12.0 EUR/day
+
+$ APP_ENV=staging python -m app.settings
+INFO configuration loaded: environment=staging source=config.yaml
+=== APP_ENV=staging ===
+[DEBUG MODE] Verbose logs enabled
+Connecting to DB: postgresql+psycopg://staging_user:****@staging-db:5432/staging_db
+Using API key: stag... (masked)
+Logs -> MongoDB staging-logs/logs_staging, level INFO; price 0.25 EUR/min, cap 12.0 EUR/day
+
+$ APP_ENV=prod python -m app.settings
+INFO configuration loaded: environment=prod source=config.yaml
+=== APP_ENV=prod ===
+[PRODUCTION MODE] Logging minimal
+Connecting to DB: postgresql+psycopg://prod_user:****@prod-db:5432/prod_db
+Using API key: prod... (masked)
+Logs -> MongoDB prod-logs/logs_prod, level WARNING; price 0.25 EUR/min, cap 12.0 EUR/day
+
+$ APP_ENV=qa python -m app.settings          # unknown environment
+ValueError: Invalid APP_ENV: qa. Choose from ['dev', 'staging', 'prod']
+
+$ APP_ENV=prod DEBUG=true python -m app.settings   # forbidden in prod
+ValueError: Invalid configuration for APP_ENV=prod: config: Value error, DEBUG must be false in prod

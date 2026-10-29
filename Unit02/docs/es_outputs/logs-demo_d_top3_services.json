@@ -1,0 +1,47 @@
+{
+  "took" : 23,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 1,
+    "successful" : 1,
+    "skipped" : 0,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : {
+      "value" : 16,
+      "relation" : "eq"
+    },
+    "max_score" : null,
+    "hits" : [ ]
+  },
+  "aggregations" : {
+    "top_services" : {
+      "doc_count_error_upper_bound" : 0,
+      "sum_other_doc_count" : 3,
+      "buckets" : [
+        {
+          "key" : "payment-api",
+          "doc_count" : 6,
+          "errors" : {
+            "doc_count" : 3
+          }
+        },
+        {
+          "key" : "auth-api",
+          "doc_count" : 4,
+          "errors" : {
+            "doc_count" : 0
+          }
+        },
+        {
+          "key" : "orders-api",
+          "doc_count" : 3,
+          "errors" : {
+            "doc_count" : 1
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,123 @@
+# =============================================================================
+# Book&Ride API gateway (NGINX) - Unit 04
+#   DATOP2 U04: single entry point, routing, API key -> X-User-Id, rate limit,
+#               JSON errors, services not published.
+#   DEVOP2 U04: the gateway is the TRAFFIC SWITCH of the release strategies:
+#               blue/green, canary, rolling (values of release.env).
+#
+# TEMPLATE: at start-up the nginx image replaces the ${VARIABLES} with the
+# values of the environment (envsubst) -> /etc/nginx/conf.d/default.conf.
+# Changing release.env + recreating the gateway = switching traffic in ~1 s.
+# =============================================================================
+
+limit_req_zone $binary_remote_addr zone=perip:10m rate=${RATE_LIMIT};
+
+# ---------- API key -> user id ("" = unknown key) ----------
+map $http_x_api_key $api_user {
+    default              "";
+    "${API_KEY_USER1}"   "1";
+    "${API_KEY_USER2}"   "2";
+}
+
+# ---------- writes on /books need a key, reads are public ----------
+map "$request_method:$api_user" $books_write_denied {
+    "~^(GET|HEAD|OPTIONS):"   0;     # read: always allowed
+    "~:$"                     1;     # write without a valid key: refused
+    default                   0;
+}
+
+# ---------- upstreams (= Docker Compose service names) ----------
+# By default NGINX resolves a host name ONCE, at start-up. A release recreates
+# the containers, which then get NEW IP addresses: NGINX would keep sending
+# traffic to the old ones (found during the tests: /internal/green answered
+# "blue"!). `resolve` (NGINX >= 1.27.3) + the Docker DNS (127.0.0.11) re-read
+# the address every 5 s; `zone` = shared memory needed by `resolve`.
+resolver 127.0.0.11 valid=5s ipv6=off;
+upstream books_service { zone books 64k;         server books:${BOOKS_PORT} resolve; }
+upstream rentals_blue  { zone rentals_blue 64k;  server rentals-blue:${RENTALS_PORT} resolve; }
+upstream rentals_green { zone rentals_green 64k; server rentals-green:${RENTALS_PORT} resolve; }
+upstream rentals_both  {                 # rolling update: the two instances share the load
+    zone rentals_both 64k;
+    server rentals-blue:${RENTALS_PORT} resolve;
+    server rentals-green:${RENTALS_PORT} resolve;
+}
+
+# ---------- release strategy (release.env) ----------
+# canary: CANARY_PERCENT % (1-99: NGINX refuses "0%") of the requests go to the
+# canary color, the rest to the active color. Split on $request_id = per request
+# (demo with 2 users);
+# in production split on the user ($api_user) so that a customer always sees
+# the same version (sticky canary).
+split_clients "${request_id}" $canary_pool {
+    ${CANARY_PERCENT}%   rentals_${CANARY_COLOR};
+    *                    rentals_${ACTIVE_COLOR};
+}
+map "${RELEASE_MODE}" $rentals_pool {
+    canary    $canary_pool;
+    rolling   rentals_both;
+    default   rentals_${ACTIVE_COLOR};      # bluegreen: 100 % on the active color
+}
+
+log_format json escape=json '{"timestamp":"$time_iso8601","service":"gateway",'
+    '"user_id":"$api_user","method":"$request_method","path":"$uri","status":$status,'
+    '"upstream":"$upstream_addr","version":"$upstream_http_x_app_version",'
+    '"duration_ms":$request_time,"release_mode":"${RELEASE_MODE}"}';
+
+server {
+    listen ${GATEWAY_LISTEN_PORT};
+    default_type application/json;
+    access_log /dev/stdout json;
+
+    limit_req zone=perip burst=${RATE_BURST} nodelay;
+    limit_req_status 429;
+
+    # errors produced by the gateway itself: JSON instead of NGINX's HTML page
+    error_page 429 = @too_many_requests;
+    error_page 502 = @bad_gateway;
+    error_page 504 = @gateway_timeout;
+    location @too_many_requests {
+        add_header Retry-After 1 always;
+        return 429 '{"detail":"Too many requests, retry later"}';
+    }
+    location @bad_gateway     { return 502 '{"detail":"Upstream service unavailable"}'; }
+    location @gateway_timeout { return 504 '{"detail":"Upstream service timeout"}'; }
+
+    # ---------- gateway health + release state ----------
+    location = /health {
+        return 200 '{"status":"ok","component":"gateway","release_mode":"${RELEASE_MODE}","active_color":"${ACTIVE_COLOR}","canary_color":"${CANARY_COLOR}","canary_percent":${CANARY_PERCENT}}';
+    }
+    location = /books/health   { proxy_pass http://books_service/health; }
+    location = /rentals/health { proxy_pass http://$rentals_pool/rentals/health; }
+    # direct access to ONE color, to test green before switching (smoke test of blue/green)
+    location = /internal/blue/rentals/version  { proxy_pass http://rentals_blue/rentals/version; }
+    location = /internal/green/rentals/version { proxy_pass http://rentals_green/rentals/version; }
+
+    # ---------- books: public reads, writes with a key ----------
+    location /books {
+        if ($books_write_denied) {
+            return 401 '{"detail":"Missing or invalid API key"}';
+        }
+        proxy_pass http://books_service;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-User-Id $api_user;
+    }
+
+    # ---------- rentals: key required, traffic split by the release strategy ----------
+    location /rentals {
+        if ($api_user = "") {
+            return 401 '{"detail":"Missing or invalid API key"}';
+        }
+        proxy_pass http://$rentals_pool;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-User-Id $api_user;     # overwrites any value sent by the client
+        # rolling: if one instance is down/restarting, retry the request on the other
+        proxy_next_upstream error timeout http_502 http_503;
+        add_header X-Served-By $upstream_addr always;
+    }
+
+    location / {
+        return 404 '{"detail":"Unknown route"}';
+    }
+}
