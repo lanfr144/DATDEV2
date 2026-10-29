@@ -1,4 +1,5 @@
 # secrets: only the .example templates are versioned
+.git-credentials
 .env
 .env.*
 !.env.example
