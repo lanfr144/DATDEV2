@@ -27,6 +27,10 @@ réponse JSON + code HTTP               └────────────�
 | DEVOP2 U01 | chargement de `logs.ndjson` avec de vraies dates | [mongo/init/01-seed-logs.js](mongo/init/01-seed-logs.js) |
 | DEVOP2 U01 | les 3 requêtes (ERROR 24 h, actions d'un user, services en WARN) | [mongo/queries.js](mongo/queries.js) et `GET /logs/stats` |
 | DEVOP2 U01 | SQL ↔ MongoDB (table/collection, row/document) | commentaires de queries.js, [docs/answers.md](docs/answers.md) |
+| DATOP2 U01 | **gRPC** : contrat `.proto`, code généré, appel unaire + streaming, codes de statut gRPC | [grpc/](grpc), [scripts/grpc_demo.sh](scripts/grpc_demo.sh) |
+| DATOP2 U01 | **SOAP** : enveloppe XML, WSDL, `soap:Fault` | [client/soap_client.py](client/soap_client.py) |
+| DATOP2 U01 | comparaison des 4 styles + réponses de l'exercice 3 (gRPC) | [docs/api_styles.md](docs/api_styles.md) |
+| DEVOP2 U01 | livrable A : un jalon DevOps (Docker, 2013) | [docs/devops_timeline.md](docs/devops_timeline.md) |
 
 ## Démarrer
 
@@ -37,7 +41,22 @@ docker compose up -d --build --wait     # rend la main quand les 3 services sont
 python client/rest_client.py            # tour complet de l'API (pip install requests)
 ./scripts/run_queries.sh                # les 3 requêtes du cours dans mongosh
 python client/graphql_client.py LU      # GraphQL (Internet requis)
+python client/soap_client.py 42         # SOAP : NumberToWords(42) (Internet requis)
+./scripts/grpc_demo.sh                  # gRPC : livre créé en REST, relu en gRPC (port 50101)
 ```
+
+### gRPC, pas à pas
+
+Le serveur gRPC est un **profil** Compose (`grpc`) : il ne démarre que si on le demande.
+
+1. [grpc/books.proto](grpc/books.proto) est le **contrat** : le service `BookService` et ses
+   messages. Les numéros (`= 1`, `= 2`) circulent sur le réseau à la place des noms.
+2. Le Dockerfile lance `grpc_tools.protoc`, qui **génère** `books_pb2.py` (messages) et
+   `books_pb2_grpc.py` (stub client et squelette serveur). Ce code n'est jamais écrit à la main.
+3. [grpc/server.py](grpc/server.py) lit les **mêmes livres MongoDB** que l'API REST.
+   `ListBooks` renvoie un flux (`yield`), ce que REST ne sait pas faire.
+4. [grpc/client.py](grpc/client.py) appelle `stub.GetBook(...)` comme une fonction locale.
+   Une erreur arrive comme un **code gRPC** : `NOT_FOUND` (≈ 404), `INVALID_ARGUMENT` (≈ 400).
 
 | URL (ports de `.env`) | Contenu |
 |---|---|

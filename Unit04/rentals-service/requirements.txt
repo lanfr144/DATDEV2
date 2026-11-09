@@ -4,6 +4,6 @@ SQLAlchemy==2.0.36
 psycopg[binary]==3.2.3
 prometheus-client==0.21.1   # /metrics in the Prometheus text format
 pymongo==4.10.1             # JSON logs -> MongoDB
+httpx==0.28.1               # HTTP client: rentals -> books (and TestClient)
 # tests only
 pytest==8.3.4
-httpx==0.28.1

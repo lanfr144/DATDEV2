@@ -28,6 +28,9 @@ x-rentals: &rentals                   # common definition of the two slots (YAML
     MONGO_DB: logs_prod
     MONGO_ROOT_USER: ${MONGO_ROOT_USER}
     MONGO_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    # synchronous call rentals -> books on the private network (books_client.py)
+    BOOKS_URL: http://books:${BOOKS_PORT}
+    BOOKS_TIMEOUT: ${BOOKS_TIMEOUT}
   # no "ports:": only the gateway can reach the service (it sets X-User-Id)
   depends_on:
     rentals-db:
@@ -42,6 +45,9 @@ services:
     restart: unless-stopped
     environment:
       GATEWAY_LISTEN_PORT: ${GATEWAY_LISTEN_PORT}
+      GATEWAY_TLS_LISTEN_PORT: ${GATEWAY_TLS_LISTEN_PORT}
+      GATEWAY_TLS_PORT: ${GATEWAY_TLS_PORT}
+      GATEWAY_FORCE_HTTPS: ${GATEWAY_FORCE_HTTPS}
       BOOKS_PORT: ${BOOKS_PORT}
       RENTALS_PORT: ${RENTALS_PORT}
       RATE_LIMIT: ${RATE_LIMIT}
@@ -55,8 +61,12 @@ services:
       CANARY_PERCENT: ${CANARY_PERCENT}
     volumes:
       - ./gateway/templates:/etc/nginx/templates:ro
+      # TLS termination (DATOP2 U04): certificate + PRIVATE key stay at the gateway.
+      # Created by scripts/make_certs.sh (called by compose.sh), git-ignored.
+      - ./gateway/certs:/etc/nginx/certs:ro
     ports:
-      - "127.0.0.1:${GATEWAY_PORT}:${GATEWAY_LISTEN_PORT}"   # the ONLY entry point
+      - "127.0.0.1:${GATEWAY_PORT}:${GATEWAY_LISTEN_PORT}"       # the ONLY entry points:
+      - "127.0.0.1:${GATEWAY_TLS_PORT}:${GATEWAY_TLS_LISTEN_PORT}" # HTTP and HTTPS
     depends_on:
       books:
         condition: service_healthy

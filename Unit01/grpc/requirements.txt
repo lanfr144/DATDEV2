@@ -1,0 +1,3 @@
+grpcio==1.68.1
+grpcio-tools==1.68.1   # protoc for Python: generates books_pb2*.py from books.proto
+pymongo==4.10.1

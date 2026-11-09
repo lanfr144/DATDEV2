@@ -1,0 +1,84 @@
+# =============================================================================
+# DATDEV2 - Continuous Integration (DEVOP2 U01 "CI: integrate often, automated
+# builds and tests" + U04a "Continuous integration and build" stage).
+# Every push / pull request:
+#   1. unit tests of every service, WITHOUT Docker (mongomock, SQLite)
+#   2. every docker-compose.yml is valid with its .env.example
+#   3. the Python package of Unit 05 is built as a wheel and its tests run
+#      against the INSTALLED wheel
+# A red pipeline = do not merge, do not release (no tag on a red commit).
+# =============================================================================
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false                     # see every failing service, not only the first
+      matrix:
+        service:
+          - Unit01/api
+          - Unit02/api
+          - Unit03/api
+          - Unit04/books-service
+          - Unit04/rentals-service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ${{ matrix.service }}/requirements.txt
+      - name: install
+        working-directory: ${{ matrix.service }}
+        run: pip install -r requirements.txt
+      - name: pytest
+        working-directory: ${{ matrix.service }}
+        run: pytest -q
+
+  django-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - working-directory: Unit02/django-books
+        run: |
+          pip install -r requirements.txt
+          python manage.py test -v 1
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: build the wheel, install it, test it
+        working-directory: Unit05/pricing-package
+        run: |
+          pip wheel --no-deps -w dist .
+          pip install dist/*.whl pytest
+          rm -rf src                         # prove the tests use the INSTALLED package
+          pytest -q
+
+  compose-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: docker compose config (syntax + every ${VARIABLE} defined)
+        run: |
+          set -e
+          for u in Unit01 Unit02 Unit04 Unit05; do
+            (cd "$u" && cp .env.example .env && docker compose config -q && echo "$u OK")
+          done
+          (cd Unit02 && docker compose -f docker-compose.yml -f docker-compose.token.yml config -q && echo "Unit02 token OK")
+          (cd Unit04 && docker compose --env-file .env --env-file release.env config -q && echo "Unit04 release OK")
+          (cd Unit03 && for e in dev staging prod; do cp ".env.$e.example" ".env.$e"; done && cp .env.example .env \
+             && for e in dev staging prod; do docker compose --env-file .env --env-file ".env.$e" config -q; done && echo "Unit03 OK")

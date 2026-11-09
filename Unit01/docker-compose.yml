@@ -89,5 +89,24 @@ services:
       mongo:
         condition: service_healthy
 
+  grpc:                                     # DATOP2 U01: gRPC on the same books (optional profile)
+    profiles: ["grpc"]                      # started only with: docker compose --profile grpc up -d
+    build: ./grpc
+    image: datdev2/books-grpc:${APP_VERSION}
+    restart: unless-stopped
+    environment:
+      GRPC_PORT: ${GRPC_PORT}
+      GRPC_TARGET: grpc:${GRPC_PORT}
+      MONGO_DB: ${MONGO_DB}
+      MONGO_ROOT_USER: ${MONGO_ROOT_USER}
+      MONGO_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_HOST: mongo
+      MONGO_PORT: ${MONGO_PORT}
+    ports:
+      - "127.0.0.1:${GRPC_HOST_PORT}:${GRPC_PORT}"   # HTTP/2 + protobuf
+    depends_on:
+      mongo:
+        condition: service_healthy
+
 volumes:
   mongo_data:

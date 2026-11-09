@@ -14,3 +14,5 @@ config.local.yaml
 *.db
 # previous release state, written by the release scripts
 .release.previous
+# TLS certificate + PRIVATE key of the gateway (scripts/make_certs.sh)
+gateway/certs/

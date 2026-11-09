@@ -1,0 +1,38 @@
+# =============================================================================
+# Book&Ride - Unit 05 - packaging + secure transport (DEVOP2 U07 + U11)
+#   ./scripts/make_keys.sh           # SSH key pair + self-signed certificate (once)
+#   docker compose up -d --build --wait
+#   ./scripts/smoke_test.sh
+#
+#   web   Apache: :8580 -> 301 to https://:8543 (site test) ; :8590 site temporary
+#   ssh   OpenSSH + SFTP on :2251, key authentication only (user student)
+#   pricing package: built and tested by ./scripts/package_check.sh (no service)
+# =============================================================================
+services:
+  web:
+    build: ./web
+    image: datdev2/unit05-web:1.0.0
+    restart: unless-stopped
+    environment:
+      HTTPS_HOST_PORT: ${HTTPS_HOST_PORT}     # used by the redirect of bookride.conf
+    volumes:
+      - ./certs:/certs:ro                     # certificate + PRIVATE key (git-ignored)
+    ports:
+      - "127.0.0.1:${HTTP_HOST_PORT}:80"
+      - "127.0.0.1:${TEMPORARY_HOST_PORT}:90"
+      - "127.0.0.1:${HTTPS_HOST_PORT}:443"
+
+  ssh:
+    build: ./ssh
+    image: datdev2/unit05-ssh:1.0.0
+    restart: unless-stopped
+    volumes:
+      - ./keys/student_ed25519.pub:/authorized_keys:ro   # PUBLIC key only
+      - ssh_host_keys:/etc/ssh/keys                      # host identity survives restarts
+      - sftp_upload:/home/student/upload                 # files sent with sftp
+    ports:
+      - "127.0.0.1:${SSH_HOST_PORT}:22"
+
+volumes:
+  ssh_host_keys:
+  sftp_upload:

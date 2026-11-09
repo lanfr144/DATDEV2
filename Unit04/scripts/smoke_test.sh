@@ -36,4 +36,25 @@ UP=$(curl -s "http://localhost:${PROMETHEUS_HOST_PORT}/api/v1/query?query=up%7Bj
 check "Prometheus scrapes blue + green"   2 "$UP"
 N=$("${COMPOSE[@]}" exec -T logs mongosh --quiet -u "$MONGO_ROOT_USER" -p "$MONGO_ROOT_PASSWORD" --authenticationDatabase admin logs_prod --eval 'db.logs.countDocuments({service: {$in: ["books", "rentals"]}, version: {$exists: true}})')
 check "JSON logs with version in MongoDB" yes "$([ "${N:-0}" -gt 0 ] && echo yes || echo no)"
+# ---------- HTTPS at the gateway (TLS termination) ----------
+CA=(--cacert gateway/certs/gateway.crt)            # trust OUR self-signed certificate
+GWS="https://localhost:${GATEWAY_TLS_PORT}"
+check "HTTPS /health (certificate verified)" 200 "$(code "${CA[@]}" "$GWS/health")"
+check "HTTPS /books"                       200 "$(code "${CA[@]}" "$GWS/books")"
+check "HTTPS unknown CA refused by curl"   000 "$(code "$GWS/health")"
+# ---------- rentals -> books: synchronous call between services ----------
+ISBN2="978-$(date +%s)$((RANDOM % 9))"
+BID=$(curl -s -X POST "$GW/books" "${J[@]}" "${K1[@]}" \
+      -d "{\"title\":\"Ride with me\",\"author\":\"CI\",\"year\":2026,\"isbn\":\"$ISBN2\",\"price\":3}" | json 'd["id"]')
+check "rental + existing book -> title from books" "Ride with me" \
+  "$(curl -s -X POST "$GW/rentals/start" "${J[@]}" "${K1[@]}" -d "{\"bike_id\":\"BIKE-$RANDOM$RANDOM\",\"book_id\":$BID}" | json 'd["book"]["title"]')"
+check "rental + unknown book -> 404"       404 "$(code -X POST "$GW/rentals/start" "${J[@]}" "${K1[@]}" -d "{\"bike_id\":\"BIKE-$RANDOM$RANDOM\",\"book_id\":999999}")"
+"${COMPOSE[@]}" stop books >/dev/null 2>&1           # failure test: books is down
+check "books down -> rentals answers 503"  503 "$(code -X POST "$GW/rentals/start" "${J[@]}" "${K1[@]}" -d "{\"bike_id\":\"BIKE-$RANDOM$RANDOM\",\"book_id\":$BID}")"
+check "books down -> rentals without book still OK" 201 "$(code -X POST "$GW/rentals/start" "${J[@]}" "${K1[@]}" -d "{\"bike_id\":\"BIKE-$RANDOM$RANDOM\"}")"
+# 502 (no live upstream / connection refused) or 504 (connect timeout to the
+# old IP): both mean "the service behind the gateway did not answer" (cheat sheet)
+check "books down -> gateway 502/504 within 5 s" yes "$(c=$(code -m 5 "$GW/books"); [ "$c" = 502 ] || [ "$c" = 504 ] && echo yes || echo "no ($c)")"
+"${COMPOSE[@]}" start books >/dev/null 2>&1 && "${COMPOSE[@]}" up -d --wait books >/dev/null 2>&1
+check "books back -> 200"                  200 "$(code "$GW/books")"
 exit $fail

@@ -53,10 +53,12 @@ case "${1:-status}" in
     fi
     save; set_kv "${2^^}_VERSION" "$3"; set_kv "${2^^}_FAULT_RATE" 0; reload
     up_slot "$2"
+    record deploy "$2:$3"
     echo "deployed $3 on $2 (idle, no user traffic yet): $(curl -s "$GW/internal/$2/rentals/version")" ;;
 
   fault)
     color "$2"; save; set_kv "${2^^}_FAULT_RATE" "$3"; reload; up_slot "$2"
+    record fault "$2:$3"
     echo "$2 now fails ${3} of the stops (simulated defect)" ;;
 
   switch)
@@ -64,12 +66,14 @@ case "${1:-status}" in
     # never send users to a slot that is not healthy
     curl -sf "$GW/internal/$2/rentals/version" >/dev/null || { echo "refused: $2 is not healthy"; exit 1; }
     save; set_kv RELEASE_MODE bluegreen; set_kv ACTIVE_COLOR "$2"; reload; up_gateway
+    record switch "$2"
     echo "blue/green switch: 100 % of /rentals -> $2 ($(slot_version "$2"))" ;;
 
   canary)
     [[ "${2:-}" =~ ^[0-9]+$ ]] && [ "$2" -ge 1 ] && [ "$2" -le 99 ] || { echo "percent must be 1-99"; exit 2; }
     save; set_kv RELEASE_MODE canary; set_kv CANARY_COLOR "$(other "$ACTIVE_COLOR")"
     set_kv CANARY_PERCENT "$2"; reload; up_gateway
+    record canary "$2"
     echo "canary: $2 % -> $CANARY_COLOR ($(slot_version "$CANARY_COLOR")), rest -> $ACTIVE_COLOR ($(slot_version "$ACTIVE_COLOR"))" ;;
 
   promote)
@@ -78,19 +82,32 @@ case "${1:-status}" in
 
   rolling)
     semver "$2"; save
+    # a rolling update starts from a HOMOGENEOUS fleet: every instance on the
+    # production version. The idle slot may still hold an older release (e.g.
+    # the one before the last switch): align it first, before it gets traffic.
+    prod_version_var="${ACTIVE_COLOR^^}_VERSION"; idle="$(other "$ACTIVE_COLOR")"
+    if [ "$(slot_version "$idle")" != "${!prod_version_var}" ]; then
+      echo "  align idle slot $idle on the production version ${!prod_version_var}"
+      set_kv "${idle^^}_VERSION" "${!prod_version_var}"; set_kv "${idle^^}_FAULT_RATE" 0; reload; up_slot "$idle"
+    fi
     set_kv RELEASE_MODE rolling; reload; up_gateway        # both slots share the traffic
+    record rolling_start "$2"
     for c in blue green; do                                  # one batch = one instance
       echo "  batch $c: $(slot_version $c) -> $2"
       set_kv "${c^^}_VERSION" "$2"; set_kv "${c^^}_FAULT_RATE" 0; reload; up_slot "$c"
+      record rolling_batch "$c:$2"
       # check between batches (course question 3.2): stop if the new instance is bad
       [ "$(slot_version $c)" = "$2" ] || { echo "batch $c failed -> ./scripts/release.sh rollback"; exit 1; }
     done
+    set_kv RELEASE_MODE bluegreen; reload; up_gateway       # rollout finished: back to one active slot
+    record rolling_done "$2"
     echo "rolling update done: blue and green run $2" ;;
 
   rollback)
     [ -f .release.previous ] || { echo "no previous state"; exit 1; }
     cp .release.previous release.env; reload
     up_slot blue; up_slot green; up_gateway
+    record rollback
     echo "rolled back to the previous release state"; status ;;
 
   *) sed -n '5,13p' "$0"; exit 2 ;;

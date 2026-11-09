@@ -23,6 +23,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
+from . import books_client
 from .db import Base, engine, get_db
 from .logs import log_event
 from .models import Rental
@@ -107,6 +108,19 @@ def version():
 @app.post("/rentals/start", status_code=status.HTTP_201_CREATED, tags=["rentals"])
 def start_rental(payload: RentalStart, response: Response, db: Session = Depends(get_db),
                  x_user_id: int = Header()):
+    book = None
+    if payload.book_id is not None:          # service-to-service call, with timeout
+        try:
+            book = books_client.get_book(payload.book_id)
+        except books_client.BooksUnavailable as exc:
+            log_event(logging.WARNING, "books_unavailable", str(x_user_id),
+                      book_id=payload.book_id, error=str(exc))
+            # the CALLER decides what a failure of the other service means: here
+            # the rental is refused (no half-done rental) and the client may retry
+            raise HTTPException(status_code=503, detail="books service unavailable, retry later",
+                                headers={"Retry-After": "5"})
+        if book is None:
+            raise HTTPException(status_code=404, detail=f"Book {payload.book_id} not found")
     busy = db.scalar(select(Rental).where(Rental.bike_id == payload.bike_id,
                                           Rental.stopped_at.is_(None)))
     if busy:
@@ -118,8 +132,11 @@ def start_rental(payload: RentalStart, response: Response, db: Session = Depends
     db.refresh(rental)
     RENTALS_STARTED.labels(APP_VERSION).inc()
     response.headers["Location"] = f"/rentals/{rental.id}"
-    return {"rental_id": rental.id, "bike_id": rental.bike_id, "user_id": rental.user_id,
-            "started_at": rental.started_at.isoformat()}
+    out = {"rental_id": rental.id, "bike_id": rental.bike_id, "user_id": rental.user_id,
+           "started_at": rental.started_at.isoformat()}
+    if book is not None:                      # data owned by books, copied for the answer only
+        out["book"] = {"id": book["id"], "title": book["title"]}
+    return out
 
 
 def price_fields(price_eur: float | None, minutes: int | None) -> dict:

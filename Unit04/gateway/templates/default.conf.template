@@ -38,8 +38,13 @@ upstream rentals_blue  { zone rentals_blue 64k;  server rentals-blue:${RENTALS_P
 upstream rentals_green { zone rentals_green 64k; server rentals-green:${RENTALS_PORT} resolve; }
 upstream rentals_both  {                 # rolling update: the two instances share the load
     zone rentals_both 64k;
-    server rentals-blue:${RENTALS_PORT} resolve;
-    server rentals-green:${RENTALS_PORT} resolve;
+    # load balancing (DATOP2 U04 slide 19): default = round robin; least_conn sends
+    # each request to the instance with the FEWEST active requests (a slot that is
+    # restarting or slow gets less). max_fails/fail_timeout = passive health check:
+    # after 3 failed requests NGINX stops using that instance for 10 s.
+    least_conn;
+    server rentals-blue:${RENTALS_PORT}  resolve max_fails=3 fail_timeout=10s;
+    server rentals-green:${RENTALS_PORT} resolve max_fails=3 fail_timeout=10s;
 }
 
 # ---------- release strategy (release.env) ----------
@@ -58,17 +63,44 @@ map "${RELEASE_MODE}" $rentals_pool {
     default   rentals_${ACTIVE_COLOR};      # bluegreen: 100 % on the active color
 }
 
+# ---------- HTTP -> HTTPS redirect (DEVOP2 U11 sheet 22, here in NGINX) ----------
+# GATEWAY_FORCE_HTTPS=true -> every plain-HTTP request gets 301 to https://,
+# except /health (the Docker healthcheck speaks plain HTTP inside the container).
+# Regexes of a map are tried in order: the first one that matches wins.
+map "${GATEWAY_FORCE_HTTPS}:$scheme:$uri" $redirect_https {
+    "~^true:http:/health$"   0;
+    "~^true:http:"           1;
+    default                  0;
+}
+
 log_format json escape=json '{"timestamp":"$time_iso8601","service":"gateway",'
     '"user_id":"$api_user","method":"$request_method","path":"$uri","status":$status,'
     '"upstream":"$upstream_addr","version":"$upstream_http_x_app_version",'
-    '"duration_ms":$request_time,"release_mode":"${RELEASE_MODE}"}';
+    '"duration_ms":$request_time,"scheme":"$scheme","release_mode":"${RELEASE_MODE}"}';
 
 server {
-    listen ${GATEWAY_LISTEN_PORT};
+    listen ${GATEWAY_LISTEN_PORT};                 # plain HTTP (lab)
+    # ---------- TLS termination (DATOP2 U04 slide 9) ----------
+    # HTTPS ENDS here: the gateway holds the certificate and the PRIVATE key,
+    # decrypts, can therefore read the path and the X-API-Key (routing, auth, rate
+    # limit), then talks plain HTTP to the services on the private Docker network.
+    # Self-signed certificate (scripts/make_certs.sh): encrypted like a real one,
+    # but not signed by a CA -> the browser warns, `curl -k` / `--cacert` needed.
+    listen ${GATEWAY_TLS_LISTEN_PORT} ssl;
+    ssl_certificate     /etc/nginx/certs/gateway.crt;
+    ssl_certificate_key /etc/nginx/certs/gateway.key;
+    ssl_protocols       TLSv1.2 TLSv1.3;
     default_type application/json;
+
+    if ($redirect_https) {
+        return 301 https://$host:${GATEWAY_TLS_PORT}$request_uri;
+    }
     access_log /dev/stdout json;
 
     limit_req zone=perip burst=${RATE_BURST} nodelay;
+    # a stopped container's IP does not answer: without this NGINX waits 60 s
+    # for the TCP connection, then says 504. 3 s is plenty on a local network.
+    proxy_connect_timeout 3s;
     limit_req_status 429;
 
     # errors produced by the gateway itself: JSON instead of NGINX's HTML page
@@ -100,6 +132,9 @@ server {
         proxy_pass http://books_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        # the whole chain of proxies (client, proxy1, ...) + how the client came in
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header X-User-Id $api_user;
     }
 
@@ -111,6 +146,8 @@ server {
         proxy_pass http://$rentals_pool;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header X-User-Id $api_user;     # overwrites any value sent by the client
         # rolling: if one instance is down/restarting, retry the request on the other
         proxy_next_upstream error timeout http_502 http_503;

@@ -25,23 +25,33 @@ def call(path, body):
         return e.code, e.headers.get("X-App-Version"), {}
 
 stats = collections.defaultdict(lambda: [0, 0])          # version -> [requests, 5xx]
+rejected = 0
 for i in range(n):
     code, version, body = call("/rentals/start", {"bike_id": f"BIKE-{int(time.time()*1000) % 10**6}{i:03d}"})
     if code != 201:
         continue
     code, version, _ = call("/rentals/stop", {"rental_id": body["rental_id"]})
+    if version is None:          # answered by the GATEWAY (429 rate limit, 502...), not by a release
+        rejected += 1
+        continue
     stats[version][0] += 1
     stats[version][1] += code >= 500
-    time.sleep(0.12)                                     # stay under the rate limit (10 r/s)
+    time.sleep(0.25)             # 2 requests per loop -> ~8 r/s: under the rate limit (10 r/s)
 worst = 0.0
 for version, (total, errors) in sorted(stats.items()):
     rate = errors / total
     worst = max(worst, rate)
     print(f"  version {version}: {total:3d} stops, {errors:2d} errors -> error rate {rate:.0%}")
+if rejected:
+    print(f"  {rejected} answers came from the gateway itself (no X-App-Version): not counted")
+if sum(total for total, _ in stats.values()) < n // 2:      # too few answers: cannot judge
+    print("  not enough answers from the releases: ROLLBACK (no data = no promotion)")
+    sys.exit(1)
 verdict = "OK, continue the rollout" if worst <= max_rate else "ROLLBACK (error rate above threshold)"
 print(f"  threshold {max_rate:.0%}: {verdict}")
 sys.exit(0 if worst <= max_rate else 1)
 PY
+record canary_analysis "$([ $rc = 0 ] && echo ok || echo failed)"     # input of the DORA metrics
 echo "  MongoDB logs, HTTP 5xx per version (last 10 min):"
 "${COMPOSE[@]}" exec -T logs mongosh --quiet -u "$MONGO_ROOT_USER" -p "$MONGO_ROOT_PASSWORD" \
   --authenticationDatabase admin logs_prod --eval '

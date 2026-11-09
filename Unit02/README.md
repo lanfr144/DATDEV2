@@ -29,8 +29,10 @@ Le Book&Ride de l'Unit 01 évolue de trois façons :
 | DATOP2 02b | tests `TestClient` + `pytest.mark.parametrize` | [api/tests/](api/tests) (15 tests) |
 | DATOP2 02c | Django : model, migration, `ModelSerializer`, `validate_<champ>` | [django-books/catalog/](django-books/catalog) |
 | DATOP2 02c | `ModelViewSet` + router, `SearchFilter`, `OrderingFilter`, pagination | [views.py](django-books/catalog/views.py), [settings.py](django-books/booksite/settings.py) |
+| DATOP2 02c | les autres écritures du lab : `@api_view` (`/hello/`, 405 sinon), vue générique `ListCreateAPIView` (`/v1/books/`), vue fonction PUT vs PATCH (`/v1/books/<id>/`) | fin de [views.py](django-books/catalog/views.py), tests `OtherViewStylesTests` |
 | DEVOP2 U02 | Elasticsearch 8 avec TLS + authentification, réseau Docker, volume | [docker-compose.yml](docker-compose.yml) |
 | DEVOP2 U02 | `kibana_system` (pas le superuser `elastic`), comptes à moindre privilège | [elk/init/es-init.sh](elk/init/es-init.sh) |
+| DEVOP2 U02 | Kibana par **jeton de compte de service** (aucun mot de passe stocké) | [docker-compose.token.yml](docker-compose.token.yml), étape 5 de es-init.sh |
 | DEVOP2 U02 | ingestion `_doc` (unitaire) et `_bulk` (NDJSON) | search.py, [shipper/ship_logs.py](shipper/ship_logs.py) |
 | DEVOP2 U02 | recherche plein texte, filtre `level=ERROR`, agrégation par niveau, top 3 des services | [elk/queries/](elk/queries) |
 | DEVOP2 U02 | export de l'index, data view, Lens, dashboard à 2 panneaux | [scripts/run_es_queries.sh](scripts/run_es_queries.sh), [elk/init/kibana-dashboard.ndjson](elk/init/kibana-dashboard.ndjson) |
@@ -47,7 +49,22 @@ docker compose up -d --build --wait     # 7 services healthy + 3 jobs terminés 
 python client/rest_client.py            # tour complet (Unit 01 + validation, recherche, Django)
 ./scripts/run_es_queries.sh             # requêtes du cours → docs/es_outputs/*.json
 ./scripts/run_es_queries.sh 'logs-*'    # mêmes requêtes sur dataset du cours + logs réels
+curl -s localhost:8202/hello/           # vue @api_view du lab Django (exercice 1)
 ```
+
+Variante du cours (partie B, dernière étape) : Kibana s'authentifie avec un **jeton de
+compte de service** au lieu du mot de passe de `kibana_system`.
+
+```bash
+docker compose down
+docker compose -f docker-compose.yml -f docker-compose.token.yml up -d --build --wait
+docker compose logs es-init | grep token          # "5. service-account token elastic/kibana/bookandride"
+```
+
+`es-init` crée le jeton `elastic/kibana/bookandride` (l'équivalent de
+`elasticsearch-service-tokens create`, mais par l'API REST), l'écrit dans un volume partagé,
+et Kibana le lit au démarrage dans `ELASTICSEARCH_SERVICEACCOUNTTOKEN`. Les variables
+`ELASTICSEARCH_USERNAME`/`PASSWORD` sont vidées : Kibana refuse un jeton **et** un mot de passe.
 
 | URL | Contenu |
 |---|---|
@@ -60,7 +77,7 @@ python client/rest_client.py            # tour complet (Unit 01 + validation, re
 Tests sans Docker :
 ```bash
 cd api && pytest -q                         # 15 passed (mongomock, ES désactivé)
-cd django-books && python manage.py test    # 4 tests OK (SQLite en mémoire)
+cd django-books && python manage.py test    # 6 tests OK (SQLite en mémoire)
 ```
 
 ## Healthchecks

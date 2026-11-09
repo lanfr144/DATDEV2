@@ -1,4 +1,4 @@
-# DATDEV2 – Consolidation DATOP2 + DEVOP2 (Units 01 à 04)
+# DATDEV2 – Consolidation DATOP2 + DEVOP2 (Units 01 à 05)
 
 Un **seul fil rouge, Book&Ride**, qui grandit d'Unit en Unit. Chaque Unit réunit la
 partie *développement d'API* de **DATOP2** et la partie *exploitation* de **DEVOP2** qui
@@ -8,10 +8,11 @@ tests.
 
 | Unit | DATOP2 (API) | DEVOP2 (Ops) | L'exemple consolidé |
 |---|---|---|---|
-| [Unit01](Unit01/README.md) | API Basics : HTTP, REST vs GraphQL, JSON | Logs et métadonnées, MongoDB en Docker | API REST `/books` (FastAPI) dont **chaque requête produit un log JSON dans MongoDB** ; les 3 requêtes du cours via `mongosh` et `GET /logs/stats` |
-| [Unit02](Unit02/README.md) | FastAPI (validation, tests, BackgroundTasks) + Django REST | Elasticsearch 8 (TLS) + Kibana | Même ressource en **FastAPI et en Django** ; logs **MongoDB → shipper `_bulk` → Elasticsearch → dashboard Kibana** ; recherche plein texte des livres |
+| [Unit01](Unit01/README.md) | API Basics : HTTP, REST, GraphQL, **SOAP**, **gRPC**, JSON | Logs et métadonnées, MongoDB en Docker | API REST `/books` (FastAPI) dont **chaque requête produit un log JSON dans MongoDB** ; les 3 requêtes du cours via `mongosh` et `GET /logs/stats` ; les mêmes livres en **gRPC** (contrat `.proto`) ; client SOAP |
+| [Unit02](Unit02/README.md) | FastAPI (validation, tests, BackgroundTasks) + Django REST | Elasticsearch 8 (TLS) + Kibana | Même ressource en **FastAPI et en Django** ; logs **MongoDB → shipper `_bulk` → Elasticsearch → dashboard Kibana** ; recherche plein texte des livres ; vues DRF du lab (`@api_view`, générique) ; Kibana par **jeton de compte de service** |
 | [Unit03](Unit03/README.md) | Monolithe modulaire (books + rentals, PostgreSQL, plafond de 12 €/jour) | Configuration dev/staging/prod (`config.yaml`, loader, secrets) | **Même image, 3 environnements** lancés en parallèle ; configuration validée par Pydantic ; prod sans `/docs`, avec des logs minimaux |
-| [Unit04](Unit04/README.md) | API Gateway NGINX, microservice `rentals`, Prometheus | Release management : semver, blue/green, rolling, canary (+ U05 rollback) | La **gateway sert d'aiguillage des releases** ; scénario réel 1.1.0 → 2.0.0 (canary raté, rollback) → 2.0.1 → 2.0.2 (rolling) ; lab Git (tags, revert, reflog, hotfix) |
+| [Unit04](Unit04/README.md) | API Gateway NGINX, microservice `rentals`, Prometheus | Release management : semver, blue/green, rolling, canary (+ U05 rollback) | La **gateway sert d'aiguillage des releases** ; scénario réel 1.1.0 → 2.0.0 (canary raté, rollback) → 2.0.1 → 2.0.2 (rolling) ; lab Git (tags, revert, reflog, hotfix) ; **HTTPS** à la gateway ; appel **rentals → books** avec timeout ; indicateurs **DORA** |
+| [Unit05](Unit05/README.md) | — | Paquet Python (U07) ; SSH, OpenSSL, Apache HTTPS, SFTP (U11, fiches 19-23) | La règle de prix en **paquet** (`src/`, `pyproject.toml`, wheel testée) ; Apache 80 → 301 → HTTPS ; OpenSSH **par clé seulement** + SFTP |
 
 ## Comment le fil rouge évolue
 
@@ -22,6 +23,8 @@ U03  client ─► monolithe (books + rentals) ─► PostgreSQL        ×3 env 
                            └─ logs JSON (+env, +version) ─► MongoDB
 U04  client ─► gateway ─► books ─► PostgreSQL
                        └► rentals-blue / rentals-green ─► PostgreSQL     (+ Prometheus, MongoDB)
+         (HTTP :8401 + HTTPS :8443)   rentals ──HTTP, timeout 2 s──► books
+U05  paquet bookandride-pricing (wheel) · Apache HTTPS · OpenSSH/SFTP par clé
 ```
 
 Décisions d'architecture, cumulées d'une Unit à l'autre dans `docs/adr/` :
@@ -44,29 +47,45 @@ cd Unit01 && cp .env.example .env && docker compose up -d --build --wait && ./sc
 cd Unit02 && cp .env.example .env && docker compose up -d --build --wait && ./scripts/smoke_test.sh
 cd Unit03 && ./scripts/up.sh dev && ./scripts/up.sh staging && ./scripts/up.sh prod && ./scripts/smoke_test.sh
 cd Unit04 && cp .env.example .env && ./scripts/compose.sh up -d --build --wait && ./scripts/smoke_test.sh
+cd Unit05 && cp .env.example .env && ./scripts/make_keys.sh && docker compose up -d --build --wait && ./scripts/smoke_test.sh
+```
+
+Ou tout d'un coup, Unit après Unit (tests unitaires dans un conteneur Python, puis
+`up`, smoke tests, démos, `down`), avec un journal dans `logs/test_all.log` :
+
+```bash
+./scripts/test_all.sh            # depuis WSL ou Git Bash, Docker Desktop démarré
+./scripts/test_all.sh 04 05      # seulement certaines Units
 ```
 
 Les fichiers `.env` sont déjà présents, avec des mots de passe aléatoires générés le
 2026-10-28. Les `cp` ne servent que pour un clone neuf. En Unit 03, il faut aussi copier
 `.env.<env>.example` vers `.env.<env>`.
 
-Les ports ne se chevauchent pas : les 4 Units peuvent tourner en même temps.
+Les ports ne se chevauchent pas : les 5 Units peuvent tourner en même temps.
 
 | Unit | API / gateway | Autres ports publiés (tous sur 127.0.0.1) |
 |---|---|---|
 | 01 | 8101 | mongo-express 8181, MongoDB 27101 |
 | 02 | 8201 (FastAPI), 8202 (Django) | mongo-express 8281, MongoDB 27201, Elasticsearch 9221, Kibana 5621 |
 | 03 | 8301 dev, 8302 staging, 8303 prod | MongoDB 27301 / 27302 / 27303 |
-| 04 | 8401 (gateway) | Prometheus 9491, MongoDB 27401 |
+| 01 (gRPC) | 50101 | profil `grpc` |
+| 04 | 8401 (gateway), 8443 (HTTPS) | Prometheus 9491, MongoDB 27401 |
+| 05 | 8580 (→ HTTPS 8543), 8590 | SSH/SFTP 2251 |
 
-## Résultats des tests (2026-10-28)
+## Résultats des tests (2026-11-09, `scripts/test_all.sh`, 30/30 étapes OK)
 
-| Unit | Tests unitaires (sans Docker) | Smoke test de bout en bout (Docker) |
+| Unit | Tests unitaires (dans un conteneur Python, sans services) | De bout en bout (Docker) |
 |---|---|---|
-| 01 | 6 passed (mongomock) | 9/9 OK, 3 conteneurs healthy |
-| 02 | FastAPI 15 passed · Django 4 OK | 13/13 OK, 7 conteneurs healthy + 3 jobs terminés (exit 0) |
-| 03 | 25 passed (monolithe + configuration) | 20/20 OK sur les 3 environnements |
-| 04 | books 11 passed · rentals 17 passed | 15/15 OK, 8 conteneurs healthy ; scénario de release complet |
+| 01 | 6 passed (mongomock) | smoke 9/9 · requêtes mongosh · démo gRPC (unaire, streaming, `NOT_FOUND`, `INVALID_ARGUMENT`) |
+| 02 | FastAPI 15 passed · Django 6 OK | smoke 13/13 avec mot de passe **et** 13/13 avec jeton de compte de service · vues DRF du lab |
+| 03 | 25 passed (monolithe + configuration) | 3 environnements up · smoke 20/20 |
+| 04 | books 11 passed · rentals 23 passed | smoke 24/24 (dont HTTPS, rentals → books, panne de books) · redirection HTTPS 4/4 · scénario de release + DORA |
+| 05 | paquet : 7 passed sur la wheel installée | smoke 12/12 (HTTPS, 301, HSTS, SSH par clé, root refusé, SFTP aller-retour) |
+
+DORA du dernier scénario ([Unit04/docs/dora_report.md](Unit04/docs/dora_report.md)) :
+4 déploiements en 3,4 min, délai de changement 17 s, taux d'échec 40 % (1.1.0 retirée
+volontairement, canary 2.0.0 raté), MTTR 14 s.
 
 ## Conventions communes
 
@@ -108,12 +127,13 @@ Les ports ne se chevauchent pas : les 4 Units peuvent tourner en même temps.
 5. **Healthcheck MongoDB.** Un test sur `127.0.0.1` passe « healthy » trop tôt, pendant le
    mongod temporaire de l'init. Il faut tester via `--host $(hostname)`.
 6. **Hors périmètre.**
-   - DEVOP2 Units 06-12 (packaging, déploiement, SSH/TLS).
+   - DEVOP2 Units 06, 08-10 et 12 (Units 07 et 11 : voir Unit05).
    - L'authentification bcrypt/JWT de GESTEL (DATOP2 U01) : remplacée ici par des clés
      API à la gateway.
    - Grafana.
-   - Une CI qui construirait les images depuis les tags Git (les étapes sont décrites dans
-     ADR-005).
+   - Une CI qui construirait et publierait les images depuis les tags Git (étapes décrites
+     dans ADR-005). La CI présente ([.github/workflows/ci.yml](.github/workflows/ci.yml))
+     lance les tests, construit la wheel et valide chaque `docker-compose.yml`.
 
 ## Arrêter et nettoyer
 
@@ -122,4 +142,5 @@ cd Unit01 && docker compose down        # -v efface aussi les volumes (données)
 cd Unit02 && docker compose down
 cd Unit03 && for e in dev staging prod; do ./scripts/down.sh $e; done
 cd Unit04 && ./scripts/compose.sh down
+cd Unit05 && docker compose down
 ```

@@ -16,3 +16,5 @@ config.local.yaml
 .release.previous
 # Office lock files
 ~$*
+# local test logs (scripts/test_all.sh)
+logs/

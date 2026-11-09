@@ -1,0 +1,32 @@
+# =============================================================================
+# Book&Ride - Unit 05 - build configuration of the package (DEVOP2 Unit 07)
+# pyproject.toml replaces setup.py: ONE declarative file read by every tool
+# (pip, build, pytest...).
+#   python -m pip install -e ".[dev]"   # editable install for development
+#   pytest                               # tests import the INSTALLED package
+#   pip wheel --no-deps -w dist .        # the artifact to publish: a .whl
+# =============================================================================
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bookandride-pricing"
+version = "1.0.0"                       # semantic version (DEVOP2 U04): the wheel is immutable
+description = "Book&Ride bike rental pricing: EUR 0.25 per started minute, EUR 12 cap per day"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "lanfr144" }]
+dependencies = []                       # pure Python: nothing to install with it
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+bookandride-price = "bookandride_pricing.cli:main"   # a command installed with the package
+
+[tool.setuptools.package-dir]
+"" = "src"                              # the packages live under src/
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

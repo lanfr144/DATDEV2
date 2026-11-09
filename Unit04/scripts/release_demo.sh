@@ -24,8 +24,9 @@ print(f'  client sees version {v[0] if v else \"?\"}: fields {sorted(k for k in 
   rm -f /tmp/h.$$
 }
 step() { echo; echo "### $*"; }
+: > "$HISTORY"                               # fresh history for the DORA metrics
 {
-step "0. initial state";                     $R status
+step "0. initial state";                     record initial; $R status
 step "1. MINOR 1.1.0 (new optional field) - blue/green"
 $R deploy green 1.1.0
 $R switch green;                              rent
@@ -46,4 +47,6 @@ step "4. PATCH 2.0.2 - rolling update (blue, check, then green)"
 $R rolling 2.0.2
 rent; rent
 step "final state";                           $R status
+step "5. DORA metrics of this scenario (scripts/dora_metrics.py)"
+python3 scripts/dora_metrics.py
 } 2>&1 | tee docs/release_demo_output.txt

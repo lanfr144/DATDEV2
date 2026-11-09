@@ -1,0 +1,32 @@
+# =============================================================================
+# Book&Ride - Unit 02 - OPTIONAL override: Kibana connects with a SERVICE-ACCOUNT
+# TOKEN instead of the kibana_system password (DEVOP2 U02, Part B, last step).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.token.yml up -d --build --wait
+#
+# es-init creates the token elastic/kibana/bookandride and writes it to the
+# volume "tokens"; Kibana reads it at start-up into ELASTICSEARCH_SERVICEACCOUNTTOKEN.
+# The username/password variables are emptied: Kibana refuses a token AND a
+# password at the same time.
+# =============================================================================
+services:
+  es-init:
+    user: "0"                       # root: may write to the fresh volume
+    environment:
+      KIBANA_AUTH: token
+    volumes:
+      - tokens:/tokens
+
+  kibana:
+    environment:
+      - ELASTICSEARCH_USERNAME=
+      - ELASTICSEARCH_PASSWORD=
+    volumes:
+      - tokens:/tokens:ro
+    entrypoint:
+      - /bin/bash
+      - -c
+      - export ELASTICSEARCH_SERVICEACCOUNTTOKEN="$$(cat /tokens/kibana)" && exec /bin/tini -- /usr/local/bin/kibana-docker
+
+volumes:
+  tokens:

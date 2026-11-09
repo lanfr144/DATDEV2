@@ -39,4 +39,17 @@ echo "4. _bulk load of logs-demo (course Part A)"
 "${CURL[@]}" -H 'Content-Type: application/x-ndjson' -X POST "$ES/logs-demo/_bulk?refresh=true" \
   --data-binary @/init/logs-demo.bulk.ndjson | grep -q '"errors":false'
 "${CURL[@]}" "$ES/logs-demo/_count"; echo
+
+# 5. (only with docker-compose.token.yml) service-account token for Kibana: the
+#    most robust way of the course (Part B): exact privileges, no password stored.
+#    The token is re-created at each run (same name -> delete first) and written
+#    to the shared volume /tokens, read by Kibana at start-up.
+if [ "${KIBANA_AUTH:-password}" = token ]; then
+  echo "5. service-account token elastic/kibana/bookandride"
+  "${CURL[@]}" -X DELETE "$ES/_security/service/elastic/kibana/credential/token/bookandride" > /dev/null 2>&1 || true
+  "${CURL[@]}" -X POST "$ES/_security/service/elastic/kibana/credential/token/bookandride" \
+    | sed -E 's/.*"value":"([^"]+)".*/\1/' > /tokens/kibana
+  [ -s /tokens/kibana ] || { echo "no token created"; exit 1; }
+  chmod 644 /tokens/kibana
+fi
 echo "es-init done"

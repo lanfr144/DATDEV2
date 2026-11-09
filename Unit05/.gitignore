@@ -1,0 +1,12 @@
+.env
+!.env.example
+# private keys and certificates (scripts/make_keys.sh)
+keys/
+certs/
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+build/
+dist/

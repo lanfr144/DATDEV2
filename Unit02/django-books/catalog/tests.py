@@ -38,3 +38,21 @@ class BookApiTests(APITestCase):
 
     def test_health(self):
         self.assertEqual(self.client.get("/health/").json()["status"], "ok")
+
+
+class OtherViewStylesTests(APITestCase):
+    """The lab's function view and generic view behave like the ViewSet."""
+
+    def test_hello_get_only(self):
+        self.assertEqual(self.client.get("/hello/").json(), {"message": "Hello, DRF!"})
+        self.assertEqual(self.client.post("/hello/").status_code, 405)    # @api_view(["GET"])
+
+    def test_put_vs_patch_on_function_view(self):
+        book_id = self.client.post("/v1/books/", DUNE, format="json").json()["id"]
+        url = f"/v1/books/{book_id}/"
+        self.assertEqual(self.client.patch(url, {"price": "5.00"}, format="json").status_code, 200)
+        self.assertEqual(self.client.put(url, {"price": "6.00"}, format="json").status_code, 400)
+        self.assertEqual(self.client.put(url, {**DUNE, "price": "6.00"}, format="json").json()["price"], "6.00")
+        self.assertEqual(self.client.delete(url).status_code, 204)
+        self.assertEqual(self.client.get(url).status_code, 404)
+        self.assertEqual(self.client.get("/v1/books/", {"search": "herbert"}).json()["count"], 0)

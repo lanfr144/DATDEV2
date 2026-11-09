@@ -5,6 +5,7 @@ mode=bluegreen active=blue canary=green(10%)
   green: 1.0.0 (fault rate 0)
 
 ### 1. MINOR 1.1.0 (new optional field) - blue/green
+  building image datdev2/rentals:1.1.0
 deployed 1.1.0 on green (idle, no user traffic yet): {"version":"1.1.0","color":"green","features":{"price_detail":true,"price_cents":false}}
 blue/green switch: 100 % of /rentals -> green (1.1.0)
   client sees version 1.1.0: fields ['price_detail', 'price_eur']
@@ -15,36 +16,52 @@ blue/green switch: 100 % of /rentals -> green (1.1.0)
   client sees version 1.1.0: fields ['price_detail', 'price_eur']
 
 ### 2. MAJOR 2.0.0 (price_eur -> price_cents) - canary, BAD release
+  building image datdev2/rentals:2.0.0
 deployed 2.0.0 on blue (idle, no user traffic yet): {"version":"2.0.0","color":"blue","features":{"price_detail":true,"price_cents":true}}
 blue now fails 0.3 of the stops (simulated defect)
 canary: 30 % -> blue (2.0.0), rest -> green (1.1.0)
-  version 1.1.0:  30 stops,  0 errors -> error rate 0%
-  version 2.0.0:  10 stops,  2 errors -> error rate 20%
+  version 1.1.0:  31 stops,  0 errors -> error rate 0%
+  version 2.0.0:   9 stops,  5 errors -> error rate 56%
   threshold 5%: ROLLBACK (error rate above threshold)
   MongoDB logs, HTTP 5xx per version (last 10 min):
-    2.0.0: 2
+    1.0.0: 1
+    2.0.0: 5
   -> canary above threshold: ROLLBACK
 blue/green switch: 100 % of /rentals -> green (1.1.0)
 
 ### 3. PATCH 2.0.1 (the fix; 2.0.0 is NOT re-tagged) - canary OK, promote
+  building image datdev2/rentals:2.0.1
 deployed 2.0.1 on blue (idle, no user traffic yet): {"version":"2.0.1","color":"blue","features":{"price_detail":true,"price_cents":true}}
 canary: 30 % -> blue (2.0.1), rest -> green (1.1.0)
-  version 1.1.0:  31 stops,  0 errors -> error rate 0%
-  version 2.0.1:   9 stops,  0 errors -> error rate 0%
+  version 1.1.0:  30 stops,  0 errors -> error rate 0%
+  version 2.0.1:  10 stops,  0 errors -> error rate 0%
   threshold 5%: OK, continue the rollout
   MongoDB logs, HTTP 5xx per version (last 10 min):
-    2.0.0: 2
+    1.0.0: 1
+    2.0.0: 5
 blue/green switch: 100 % of /rentals -> blue (2.0.1)
   client sees version 2.0.1: fields ['price_cents', 'price_detail']
 
 ### 4. PATCH 2.0.2 - rolling update (blue, check, then green)
+  align idle slot green on the production version 2.0.1
   batch blue: 2.0.1 -> 2.0.2
-  batch green: 1.1.0 -> 2.0.2
+  building image datdev2/rentals:2.0.2
+  batch green: 2.0.1 -> 2.0.2
 rolling update done: blue and green run 2.0.2
   client sees version 2.0.2: fields ['price_cents', 'price_detail']
   client sees version 2.0.2: fields ['price_cents', 'price_detail']
 
 ### final state
-mode=rolling active=blue canary=blue(30%)
+mode=bluegreen active=blue canary=blue(30%)
   blue : 2.0.2 (fault rate 0)
   green: 2.0.2 (fault rate 0)
+
+### 5. DORA metrics of this scenario (scripts/dora_metrics.py)
+| DORA indicator | Value | Read as |
+|---|---|---|
+| Deployment frequency | 4 in 3.4 min (70/hour) | how often a new version reaches 100 % of users |
+| Lead time for changes | 17 s | deploy on the idle slot -> in production (average) |
+| Change failure rate | 40% (2/5: 1.1.0, 2.0.0) | changes rolled back after reaching users |
+| Mean time to recover | 14 s | bad version exposed -> users back on a good one |
+
+Version in production at the end: **2.0.2**.

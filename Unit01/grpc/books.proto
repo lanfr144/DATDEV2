@@ -1,0 +1,41 @@
+// =============================================================================
+// Book&Ride - Unit 01 - gRPC contract (DATOP2 Unit 01, "Popular API Architecture Styles")
+// =============================================================================
+// gRPC = RPC over HTTP/2 + Protocol Buffers. THIS file is the contract: the
+// client and the server GENERATE their code from it (grpc_tools.protoc), so
+// both sides always agree on the messages and the methods.
+//
+//   REST    : GET /books/{id}           -> JSON text, one URL per resource
+//   gRPC    : BookService.GetBook(id)   -> binary protobuf, one method per action
+//
+// The numbers (= 1, = 2 ...) are FIELD TAGS: they are what travels on the wire,
+// not the names. Never reuse or renumber a tag once released (same idea as an
+// immutable semantic version, DEVOP2 U04).
+// =============================================================================
+syntax = "proto3";
+
+package bookandride.v1;
+
+service BookService {
+  // unary call: one request, one response (like GET /books/{id})
+  rpc GetBook (GetBookRequest) returns (Book);
+  // server streaming: one request, a STREAM of responses (no REST equivalent)
+  rpc ListBooks (ListBooksRequest) returns (stream Book);
+}
+
+message GetBookRequest {
+  string id = 1;              // MongoDB ObjectId, as a string
+}
+
+message ListBooksRequest {
+  string author = 1;          // optional filter; "" = every book
+  int32 limit = 2;            // 0 = default (20)
+}
+
+message Book {
+  string id = 1;
+  string title = 2;
+  string author = 3;
+  int32 year = 4;
+  string isbn = 5;
+}
